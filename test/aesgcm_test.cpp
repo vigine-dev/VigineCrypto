@@ -90,3 +90,20 @@ TEST(AesGcm, EmptyPlaintextRoundTrips)
     ASSERT_TRUE(opened.has_value());
     EXPECT_TRUE(opened->empty());
 }
+
+TEST(AesGcm, AssociatedDataOnlyEmptyPlaintext)
+{
+    const auto key   = vigine::crypto::AesGcmKey::random();
+    const auto nonce = sampleNonce();
+    const auto aad   = bytesOf("header-only");
+
+    // Empty plaintext + non-empty AAD previously formed an out-of-bounds
+    // pointer (ciphertext.data() + aadLen); it must seal/open cleanly now.
+    const auto sealed = vigine::crypto::seal(key, nonce, {}, aad);
+    EXPECT_TRUE(sealed.ciphertext.empty());
+    const auto opened = vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, aad);
+    ASSERT_TRUE(opened.has_value());
+    EXPECT_TRUE(opened->empty());
+    EXPECT_FALSE(
+        vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, bytesOf("other")).has_value());
+}

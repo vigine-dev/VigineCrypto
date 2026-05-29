@@ -75,4 +75,48 @@ TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
     ::close(fds[1]);
 }
 
+TEST(Tls, ClientRejectsWrongHostname)
+{
+    const SelfSignedCert cert = generateSelfSignedCert("localhost");
+    ASSERT_FALSE(cert.certPem.empty());
+
+    int fds[2] = {-1, -1};
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+    std::thread server([&] {
+        TlsStream stream =
+            TlsStream::acceptServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem, cert.keyPem);
+        (void)stream.ok(); // the client aborts on hostname mismatch
+    });
+
+    // The cert's SAN is "localhost"; a different expected hostname must fail
+    // verification rather than silently accept the chain-valid certificate.
+    TlsStream client =
+        TlsStream::connectClient(static_cast<std::uintptr_t>(fds[1]), "wrong.example", cert.certPem);
+    EXPECT_FALSE(client.ok());
+
+    ::close(fds[1]); // EOF so the server's SSL_accept unblocks
+    server.join();
+    ::close(fds[0]);
+}
+
+TEST(Tls, ClientRejectsEmptyHostname)
+{
+    const SelfSignedCert cert = generateSelfSignedCert("localhost");
+    ASSERT_FALSE(cert.certPem.empty());
+
+    int fds[2] = {-1, -1};
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+    // An empty expected hostname is refused client-side before any handshake,
+    // so no server is needed (starting one would just block on a peer that
+    // never connects).
+    TlsStream client =
+        TlsStream::connectClient(static_cast<std::uintptr_t>(fds[1]), "", cert.certPem);
+    EXPECT_FALSE(client.ok());
+
+    ::close(fds[0]);
+    ::close(fds[1]);
+}
+
 #endif

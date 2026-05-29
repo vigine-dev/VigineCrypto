@@ -74,14 +74,18 @@ AesGcmSealed seal(const AesGcmKey &key, std::span<const std::byte, kAesGcmNonceS
                    != 1)
             fatal("crypto.aesgcm.seal_init");
 
-        int processed = 0;
+        // The AAD update reports its own byte count, which must NOT feed the
+        // ciphertext output offset (that comes only from the plaintext update);
+        // otherwise an AAD-only seal would index past the ciphertext buffer.
+        int aadProcessed = 0;
         if (!aad.empty()
-            && EVP_EncryptUpdate(ctx.get(), nullptr, &processed,
+            && EVP_EncryptUpdate(ctx.get(), nullptr, &aadProcessed,
                                  reinterpret_cast<const unsigned char *>(aad.data()),
                                  static_cast<int>(aad.size()))
                    != 1)
             fatal("crypto.aesgcm.seal_aad");
 
+        int processed = 0;
         if (!plaintext.empty()
             && EVP_EncryptUpdate(ctx.get(), reinterpret_cast<unsigned char *>(sealed.ciphertext.data()),
                                  &processed, reinterpret_cast<const unsigned char *>(plaintext.data()),
@@ -127,14 +131,17 @@ std::optional<std::vector<std::byte>> open(const AesGcmKey &key,
                    != 1)
             fatal("crypto.aesgcm.open_init");
 
-        int processed = 0;
+        // Separate counter for AAD so it never feeds the plaintext output
+        // offset (see seal): an AAD-only open must not index past the buffer.
+        int aadProcessed = 0;
         if (!aad.empty()
-            && EVP_DecryptUpdate(ctx.get(), nullptr, &processed,
+            && EVP_DecryptUpdate(ctx.get(), nullptr, &aadProcessed,
                                  reinterpret_cast<const unsigned char *>(aad.data()),
                                  static_cast<int>(aad.size()))
                    != 1)
             fatal("crypto.aesgcm.open_aad");
 
+        int processed = 0;
         if (!ciphertext.empty()
             && EVP_DecryptUpdate(ctx.get(), reinterpret_cast<unsigned char *>(plaintext.data()), &processed,
                                  reinterpret_cast<const unsigned char *>(ciphertext.data()),
@@ -160,7 +167,12 @@ std::optional<std::vector<std::byte>> open(const AesGcmKey &key,
     });
 
     if (!authentic)
+    {
+        // GCM is online: DecryptUpdate already wrote decrypted bytes before the
+        // tag check failed. Never expose unauthenticated plaintext -- wipe it.
+        OPENSSL_cleanse(plaintext.data(), plaintext.size());
         return std::nullopt;
+    }
     return plaintext;
 }
 
