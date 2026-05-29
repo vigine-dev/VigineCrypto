@@ -1,0 +1,12 @@
+[submodule "external/openssl"]
+	path = external/openssl
+	url = https://github.com/vigine-dev/openssl.git
+	shallow = true
+[submodule "external/blake3"]
+	path = external/blake3
+	url = https://github.com/vigine-dev/BLAKE3.git
+	shallow = true
+[submodule "external/googletest"]
+	path = external/googletest
+	url = https://github.com/vigine-dev/googletest.git
+	shallow = true
