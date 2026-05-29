@@ -82,6 +82,27 @@ Ed25519KeyPair generateKeyPair()
     return pair;
 }
 
+Ed25519KeyPair keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed)
+{
+    PkeyPtr pkey{EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr,
+                                              reinterpret_cast<const unsigned char *>(seed.data()),
+                                              seed.size()),
+                 &EVP_PKEY_free};
+    if (!pkey)
+        fatal("crypto.ed25519.load_seed");
+
+    std::array<std::byte, kEd25519PublicKeySize> publicBytes{};
+    std::size_t                                  publicLen = publicBytes.size();
+    if (EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<unsigned char *>(publicBytes.data()),
+                                    &publicLen) != 1
+        || publicLen != kEd25519PublicKeySize)
+        fatal("crypto.ed25519.derive_public");
+
+    return Ed25519KeyPair{
+        Ed25519PublicKey{std::span<const std::byte, kEd25519PublicKeySize>{publicBytes}},
+        Ed25519SecretKey{seed}};
+}
+
 std::array<std::byte, kEd25519SignatureSize> sign(const Ed25519SecretKey &secretKey,
                                                   std::span<const std::byte> message)
 {
