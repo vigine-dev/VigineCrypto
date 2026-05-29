@@ -44,6 +44,7 @@ private:
 
     friend struct Ed25519KeyPair;
     friend Ed25519KeyPair generateKeyPair();
+    friend Ed25519KeyPair keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed);
 
     std::array<std::byte, kEd25519SeedSize> _bytes{};
 };
@@ -55,6 +56,10 @@ struct Ed25519KeyPair
 };
 
 [[nodiscard]] Ed25519KeyPair generateKeyPair();
+
+// Deterministically derive a key pair from a 32-byte seed (an RFC 8032 secret
+// key, or a seed restored from secure storage). Same seed -> same keys.
+[[nodiscard]] Ed25519KeyPair keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed);
 
 [[nodiscard]] std::array<std::byte, kEd25519SignatureSize>
 sign(const Ed25519SecretKey &secretKey, std::span<const std::byte> message);
