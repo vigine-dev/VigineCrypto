@@ -39,7 +39,7 @@ target_include_directories(VigineCrypto
 # Backends are an implementation detail: linked PRIVATE so consumers inherit
 # the link closure (a static lib propagates its private link deps) without
 # seeing OpenSSL / BLAKE3 headers.
-target_link_libraries(VigineCrypto PRIVATE vigine::openssl::crypto blake3)
+target_link_libraries(VigineCrypto PRIVATE vigine::openssl::ssl blake3)
 
 # --- tests ---------------------------------------------------------------
 if(VIGINECRYPTO_BUILD_TESTS)

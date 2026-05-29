@@ -37,10 +37,12 @@ endif()
 
 if(WIN32)
     set(_openssl_crypto_lib ${_openssl_install}/lib/libcrypto.lib)
+    set(_openssl_ssl_lib ${_openssl_install}/lib/libssl.lib)
     set(_openssl_build_cmd nmake)
     set(_openssl_install_cmd nmake install_dev)
 else()
     set(_openssl_crypto_lib ${_openssl_install}/lib/libcrypto.a)
+    set(_openssl_ssl_lib ${_openssl_install}/lib/libssl.a)
     set(_openssl_build_cmd make -j${_openssl_jobs} build_libs)
     set(_openssl_install_cmd make install_dev)
 endif()
@@ -57,7 +59,7 @@ ExternalProject_Add(openssl_external
         --prefix=${_openssl_install} --openssldir=${_openssl_install}/ssl
     BUILD_COMMAND ${_openssl_build_cmd}
     INSTALL_COMMAND ${_openssl_install_cmd}
-    BUILD_BYPRODUCTS ${_openssl_crypto_lib}
+    BUILD_BYPRODUCTS ${_openssl_crypto_lib} ${_openssl_ssl_lib}
     BUILD_IN_SOURCE 0
     LOG_CONFIGURE 1
     LOG_BUILD 1
@@ -73,3 +75,10 @@ add_dependencies(vigine_openssl_crypto openssl_external)
 target_include_directories(vigine_openssl_crypto INTERFACE ${_openssl_install}/include)
 target_link_libraries(vigine_openssl_crypto INTERFACE ${_openssl_crypto_lib} ${CMAKE_DL_LIBS} Threads::Threads)
 add_library(vigine::openssl::crypto ALIAS vigine_openssl_crypto)
+
+# libssl (TLS). libssl must precede libcrypto on the link line.
+add_library(vigine_openssl_ssl INTERFACE)
+add_dependencies(vigine_openssl_ssl openssl_external)
+target_include_directories(vigine_openssl_ssl INTERFACE ${_openssl_install}/include)
+target_link_libraries(vigine_openssl_ssl INTERFACE ${_openssl_ssl_lib} ${_openssl_crypto_lib} ${CMAKE_DL_LIBS} Threads::Threads)
+add_library(vigine::openssl::ssl ALIAS vigine_openssl_ssl)
