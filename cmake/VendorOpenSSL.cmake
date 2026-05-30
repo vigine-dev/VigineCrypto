@@ -58,9 +58,17 @@ ExternalProject_Add(openssl_external
     BINARY_DIR ${_openssl_prefix}/build
     DOWNLOAD_COMMAND ""
     UPDATE_COMMAND ""
+    # `--libdir=lib` pins the install layout on every distro: OpenSSL's
+    # default puts archives into `lib64` on 64-bit Linux, but the
+    # IMPORTED file paths we hand back to consumers below use the
+    # plain `lib` shape across all OSes. Without this flag a Linux
+    # rebuild silently installs into `install/lib64/lib{ssl,crypto}.a`
+    # and Make then fails to find `install/lib/lib{ssl,crypto}.a`
+    # during the codemap link step with `No rule to make target`.
     CONFIGURE_COMMAND perl ${_openssl_src}/Configure ${_openssl_target}
         no-shared no-apps no-tests no-docs
-        --prefix=${_openssl_install} --openssldir=${_openssl_install}/ssl
+        --prefix=${_openssl_install} --libdir=lib
+        --openssldir=${_openssl_install}/ssl
     BUILD_COMMAND ${_openssl_build_cmd}
     INSTALL_COMMAND ${_openssl_install_cmd}
     BUILD_BYPRODUCTS ${_openssl_crypto_lib} ${_openssl_ssl_lib}
