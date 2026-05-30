@@ -40,11 +40,15 @@ if(WIN32)
     set(_openssl_ssl_lib ${_openssl_install}/lib/libssl.lib)
     set(_openssl_build_cmd nmake)
     set(_openssl_install_cmd nmake install_dev)
+    # libcrypto (CAPI engine, winstore store) and libssl reference Windows
+    # system import libraries not bundled into the static .lib.
+    set(_openssl_syslibs ws2_32 crypt32 advapi32 user32 gdi32 bcrypt)
 else()
     set(_openssl_crypto_lib ${_openssl_install}/lib/libcrypto.a)
     set(_openssl_ssl_lib ${_openssl_install}/lib/libssl.a)
     set(_openssl_build_cmd make -j${_openssl_jobs} build_libs)
     set(_openssl_install_cmd make install_dev)
+    set(_openssl_syslibs "")
 endif()
 
 # Out-of-source build keeps the submodule working tree clean.
@@ -73,12 +77,12 @@ file(MAKE_DIRECTORY ${_openssl_install}/include)
 add_library(vigine_openssl_crypto INTERFACE)
 add_dependencies(vigine_openssl_crypto openssl_external)
 target_include_directories(vigine_openssl_crypto INTERFACE ${_openssl_install}/include)
-target_link_libraries(vigine_openssl_crypto INTERFACE ${_openssl_crypto_lib} ${CMAKE_DL_LIBS} Threads::Threads)
+target_link_libraries(vigine_openssl_crypto INTERFACE ${_openssl_crypto_lib} ${CMAKE_DL_LIBS} Threads::Threads ${_openssl_syslibs})
 add_library(vigine::openssl::crypto ALIAS vigine_openssl_crypto)
 
 # libssl (TLS). libssl must precede libcrypto on the link line.
 add_library(vigine_openssl_ssl INTERFACE)
 add_dependencies(vigine_openssl_ssl openssl_external)
 target_include_directories(vigine_openssl_ssl INTERFACE ${_openssl_install}/include)
-target_link_libraries(vigine_openssl_ssl INTERFACE ${_openssl_ssl_lib} ${_openssl_crypto_lib} ${CMAKE_DL_LIBS} Threads::Threads)
+target_link_libraries(vigine_openssl_ssl INTERFACE ${_openssl_ssl_lib} ${_openssl_crypto_lib} ${CMAKE_DL_LIBS} Threads::Threads ${_openssl_syslibs})
 add_library(vigine::openssl::ssl ALIAS vigine_openssl_ssl)
