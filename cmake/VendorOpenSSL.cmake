@@ -35,6 +35,15 @@ else()
     message(FATAL_ERROR "VendorOpenSSL: no OpenSSL Configure target for this platform")
 endif()
 
+# OpenSSL's Perl/make build resolves its C compiler from `$CC`, falling
+# back to a bare `gcc`/`cc` found on PATH. When that PATH default is not
+# the toolchain CMake selected for the rest of the project, libcrypto is
+# compiled against a different compiler's system headers and can emit
+# references to glibc symbols the final link target never provides (e.g.
+# `__pthread_cond_timedwait64` from a stray time64 redirect). Pin the
+# OpenSSL build to ${CMAKE_C_COMPILER} so a single toolchain compiles the
+# whole project. On Windows the env wrapper stays empty -- the VC build
+# already drives `cl` directly and does not consult `$CC`.
 if(WIN32)
     set(_openssl_crypto_lib ${_openssl_install}/lib/libcrypto.lib)
     set(_openssl_ssl_lib ${_openssl_install}/lib/libssl.lib)
@@ -43,12 +52,14 @@ if(WIN32)
     # libcrypto (CAPI engine, winstore store) and libssl reference Windows
     # system import libraries not bundled into the static .lib.
     set(_openssl_syslibs ws2_32 crypt32 advapi32 user32 gdi32 bcrypt)
+    set(_openssl_toolchain_env "")
 else()
     set(_openssl_crypto_lib ${_openssl_install}/lib/libcrypto.a)
     set(_openssl_ssl_lib ${_openssl_install}/lib/libssl.a)
     set(_openssl_build_cmd make -j${_openssl_jobs} build_libs)
     set(_openssl_install_cmd make install_dev)
     set(_openssl_syslibs "")
+    set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}")
 endif()
 
 # Out-of-source build keeps the submodule working tree clean.
@@ -58,11 +69,19 @@ ExternalProject_Add(openssl_external
     BINARY_DIR ${_openssl_prefix}/build
     DOWNLOAD_COMMAND ""
     UPDATE_COMMAND ""
-    CONFIGURE_COMMAND perl ${_openssl_src}/Configure ${_openssl_target}
+    # `--libdir=lib` pins the install layout on every distro: OpenSSL's
+    # default puts archives into `lib64` on 64-bit Linux, but the
+    # IMPORTED file paths we hand back to consumers below use the
+    # plain `lib` shape across all OSes. Without this flag a Linux
+    # rebuild silently installs into `install/lib64/lib{ssl,crypto}.a`
+    # and Make then fails to find `install/lib/lib{ssl,crypto}.a`
+    # during the codemap link step with `No rule to make target`.
+    CONFIGURE_COMMAND ${_openssl_toolchain_env} perl ${_openssl_src}/Configure ${_openssl_target}
         no-shared no-apps no-tests no-docs
-        --prefix=${_openssl_install} --openssldir=${_openssl_install}/ssl
-    BUILD_COMMAND ${_openssl_build_cmd}
-    INSTALL_COMMAND ${_openssl_install_cmd}
+        --prefix=${_openssl_install} --libdir=lib
+        --openssldir=${_openssl_install}/ssl
+    BUILD_COMMAND ${_openssl_toolchain_env} ${_openssl_build_cmd}
+    INSTALL_COMMAND ${_openssl_toolchain_env} ${_openssl_install_cmd}
     BUILD_BYPRODUCTS ${_openssl_crypto_lib} ${_openssl_ssl_lib}
     BUILD_IN_SOURCE 0
     LOG_CONFIGURE 1
