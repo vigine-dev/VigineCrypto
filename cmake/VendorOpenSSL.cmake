@@ -75,7 +75,7 @@ ExternalProject_Add(openssl_external
     # plain `lib` shape across all OSes. Without this flag a Linux
     # rebuild silently installs into `install/lib64/lib{ssl,crypto}.a`
     # and Make then fails to find `install/lib/lib{ssl,crypto}.a`
-    # during the codemap link step with `No rule to make target`.
+    # during the consumer link step with `No rule to make target`.
     CONFIGURE_COMMAND ${_openssl_toolchain_env} perl ${_openssl_src}/Configure ${_openssl_target}
         no-shared no-apps no-tests no-docs
         --prefix=${_openssl_install} --libdir=lib
