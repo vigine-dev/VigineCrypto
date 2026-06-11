@@ -66,7 +66,9 @@ struct X25519KeyPair
 // X25519 ECDH: the shared secret between our secret key and a peer's public key.
 // Returns nullopt when the peer key is a low-order point (OpenSSL's X25519 derive
 // rejects the all-zero shared secret) -- such a contributory-behaviour failure
-// MUST be rejected rather than used as a key.
+// MUST be rejected rather than used as a key. The peer key is wire data, so the
+// whole open path is abort-free: any failure to load it or to set up the derive
+// also answers nullopt.
 [[nodiscard]] std::optional<std::array<std::byte, kX25519SharedSecretSize>>
     x25519SharedSecret(const X25519SecretKey &secretKey, const X25519PublicKey &peerPublicKey);
 

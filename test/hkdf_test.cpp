@@ -66,3 +66,9 @@ TEST(Hkdf, RejectsOutputBeyondHkdfCeiling)
     // 255*32 = 8160 is the max for SHA-256; one more must fail.
     EXPECT_TRUE(hkdfSha256(ikm, {}, {}, 8161).empty());
 }
+
+TEST(Hkdf, RejectsEmptySecret)
+{
+    const std::vector<std::byte> salt = fromHex("000102030405060708090a0b0c");
+    EXPECT_TRUE(hkdfSha256({}, salt, {}, 32).empty());
+}
