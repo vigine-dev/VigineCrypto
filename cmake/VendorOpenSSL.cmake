@@ -62,12 +62,43 @@ else()
     set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}")
 endif()
 
-# Out-of-source build keeps the submodule working tree clean.
+# Out-of-source build keeps the submodule working tree clean -- but OpenSSL
+# 3.5.x's out-of-tree build is broken on Windows: Configure mkpath's the
+# build.info "incdir|module" generator paths literally (`util\perl|OpenSSL\...`
+# -> "Invalid argument"), the provider DER perl modules are not found during
+# code generation, and some exporter GENERATE rules (OpenSSLConfig.cmake) are
+# dropped from the generated makefile. All three vanish when OpenSSL is built
+# IN-TREE (build dir == source dir), which is OpenSSL's common Windows path.
+# So on Windows we build in-tree in a PRIVATE COPY of the source (the submodule
+# working tree stays clean); on Unix/macOS the out-of-source build is fine.
+if(WIN32)
+    set(_openssl_workdir ${_openssl_prefix}/src)
+    set(_openssl_source_dir ${_openssl_workdir})
+    set(_openssl_configure_dir ${_openssl_workdir})
+    set(_openssl_download_cmd ${CMAKE_COMMAND} -E copy_directory ${_openssl_src} ${_openssl_workdir})
+    # In-tree build: BUILD_IN_SOURCE 1 and NO BINARY_DIR (CMake rejects both).
+    set(_openssl_dir_args BUILD_IN_SOURCE 1)
+    # The "legacy" provider (deprecated MD2/RC4/DES/Blowfish/IDEA/... algorithms
+    # the engine never uses -- it needs only the modern default provider: AES-GCM,
+    # SHA-2, Ed25519, X25519, HKDF) is the only loadable-module DLL a no-shared
+    # build still emits. That DLL fails to link under the CMake-driven nmake step
+    # (the MSBuild custom-command environment lacks the CRT import libs / applink
+    # uplink table a standalone VC shell provides). We never load a deprecated
+    # provider, so disable it on Windows -- the build then emits only static libs.
+    set(_openssl_extra_conf no-legacy)
+else()
+    set(_openssl_source_dir ${_openssl_src})
+    set(_openssl_configure_dir ${_openssl_src})
+    set(_openssl_download_cmd "")
+    set(_openssl_dir_args BINARY_DIR ${_openssl_prefix}/build BUILD_IN_SOURCE 0)
+    set(_openssl_extra_conf "")
+endif()
+
 ExternalProject_Add(openssl_external
-    SOURCE_DIR ${_openssl_src}
+    SOURCE_DIR ${_openssl_source_dir}
     PREFIX ${_openssl_prefix}
-    BINARY_DIR ${_openssl_prefix}/build
-    DOWNLOAD_COMMAND ""
+    ${_openssl_dir_args}
+    DOWNLOAD_COMMAND ${_openssl_download_cmd}
     UPDATE_COMMAND ""
     # `--libdir=lib` pins the install layout on every distro: OpenSSL's
     # default puts archives into `lib64` on 64-bit Linux, but the
@@ -76,14 +107,13 @@ ExternalProject_Add(openssl_external
     # rebuild silently installs into `install/lib64/lib{ssl,crypto}.a`
     # and Make then fails to find `install/lib/lib{ssl,crypto}.a`
     # during the consumer link step with `No rule to make target`.
-    CONFIGURE_COMMAND ${_openssl_toolchain_env} perl ${_openssl_src}/Configure ${_openssl_target}
-        no-shared no-apps no-tests no-docs
+    CONFIGURE_COMMAND ${_openssl_toolchain_env} perl ${_openssl_configure_dir}/Configure ${_openssl_target}
+        no-shared no-apps no-tests no-docs ${_openssl_extra_conf}
         --prefix=${_openssl_install} --libdir=lib
         --openssldir=${_openssl_install}/ssl
     BUILD_COMMAND ${_openssl_toolchain_env} ${_openssl_build_cmd}
     INSTALL_COMMAND ${_openssl_toolchain_env} ${_openssl_install_cmd}
     BUILD_BYPRODUCTS ${_openssl_crypto_lib} ${_openssl_ssl_lib}
-    BUILD_IN_SOURCE 0
     LOG_CONFIGURE 1
     LOG_BUILD 1
     LOG_INSTALL 1
