@@ -107,6 +107,10 @@ ExternalProject_Add(openssl_external
     # rebuild silently installs into `install/lib64/lib{ssl,crypto}.a`
     # and Make then fails to find `install/lib/lib{ssl,crypto}.a`
     # during the consumer link step with `No rule to make target`.
+    # `perl` must resolve to a full Perl (Strawberry or ActivePerl on Windows).
+    # The MSYS / Git-Bash perl lacks Locale::Maketext::Simple, which Configure
+    # pulls in transitively, so a build launched from a Git-Bash shell dies at
+    # configure with a bare "exited with code 1". Put a full Perl first on PATH.
     CONFIGURE_COMMAND ${_openssl_toolchain_env} perl ${_openssl_configure_dir}/Configure ${_openssl_target}
         no-shared no-apps no-tests no-docs ${_openssl_extra_conf}
         --prefix=${_openssl_install} --libdir=lib
