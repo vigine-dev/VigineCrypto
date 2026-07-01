@@ -25,6 +25,10 @@ std::vector<std::byte> hkdfSha256(std::span<const std::byte> secret, std::span<c
 {
     if (outLength == 0)
         return {};
+    // An empty input-keying-material has no meaning for HKDF, and the key
+    // OSSL_PARAM below would wrap a null pointer -- answer empty instead.
+    if (secret.empty())
+        return {};
 
     KdfPtr kdf{EVP_KDF_fetch(nullptr, "HKDF", nullptr), &EVP_KDF_free};
     if (!kdf)

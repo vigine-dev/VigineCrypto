@@ -42,3 +42,12 @@ TEST(CryptoRandom, EmptySpanIsNoop)
     vigine::crypto::randomBytes(empty);
     SUCCEED();
 }
+
+TEST(CryptoRandom, EnsureCsprngReadyDoesNotAbort)
+{
+    // A working OpenSSL DRBG must pass the startup self-check without aborting,
+    // and repeated calls must be a no-op (the check runs once).
+    vigine::crypto::ensureCsprngReady();
+    vigine::crypto::ensureCsprngReady();
+    SUCCEED();
+}

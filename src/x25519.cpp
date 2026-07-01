@@ -125,13 +125,16 @@ std::optional<std::array<std::byte, kX25519SharedSecretSize>>
                                                            reinterpret_cast<const unsigned char *>(peerView.data()),
                                                            peerView.size()),
                             &EVP_PKEY_free};
+            // The peer key arrives from the wire: every failure on this open
+            // path answers nullopt instead of aborting, so hostile or
+            // malformed input can never take the process down.
             if (!peerKey)
-                fatal("crypto.x25519.load_peer");
+                return;
 
             PkeyCtxPtr ctx{EVP_PKEY_CTX_new(ourKey.get(), nullptr), &EVP_PKEY_CTX_free};
             if (!ctx || EVP_PKEY_derive_init(ctx.get()) != 1
                 || EVP_PKEY_derive_set_peer(ctx.get(), peerKey.get()) != 1)
-                fatal("crypto.x25519.derive_init");
+                return;
 
             std::array<std::byte, kX25519SharedSecretSize> shared{};
             std::size_t                                    sharedLen = shared.size();
