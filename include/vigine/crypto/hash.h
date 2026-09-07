@@ -19,7 +19,7 @@ inline constexpr std::size_t kBlake3HashSize = 32;
 // backend type.
 class Blake3Hasher
 {
-public:
+  public:
     Blake3Hasher();
     ~Blake3Hasher();
     Blake3Hasher(Blake3Hasher &&) noexcept;
@@ -30,9 +30,9 @@ public:
     void update(std::span<const std::byte> input);
     [[nodiscard]] std::array<std::byte, kBlake3HashSize> finalize() const;
 
-private:
+  private:
     struct State;
     std::unique_ptr<State> _state;
 };
 
-}
+} // namespace vigine::crypto

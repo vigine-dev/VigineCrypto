@@ -4,11 +4,10 @@
 // never included from a public header, so the OpenSSL types stay hidden from
 // consumers of the library.
 
-#include <openssl/evp.h>
-
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <openssl/evp.h>
 
 namespace vigine::crypto::detail
 {
@@ -23,4 +22,4 @@ using PkeyPtr      = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
 using MdCtxPtr     = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>;
 using CipherCtxPtr = std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)>;
 
-}
+} // namespace vigine::crypto::detail

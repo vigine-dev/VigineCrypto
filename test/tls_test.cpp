@@ -1,20 +1,19 @@
-#include <gtest/gtest.h>
-
 #include "vigine/crypto/tls.h"
+
+#include <gtest/gtest.h>
 
 // The round-trip test wires two endpoints over a POSIX socketpair. The
 // Windows equivalent (a localhost TCP pair) is a separate seat-owner task.
 #if !defined(_WIN32)
-
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <sys/socket.h>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 using vigine::crypto::generateSelfSignedCert;
@@ -30,7 +29,7 @@ std::vector<std::byte> bytesOf(std::string_view text)
         out.push_back(static_cast<std::byte>(character));
     return out;
 }
-}
+} // namespace
 
 TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
 {
@@ -41,11 +40,11 @@ TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
     int fds[2] = {-1, -1};
     ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
-    bool                   serverOk = false;
+    bool serverOk = false;
     std::vector<std::byte> serverReceived;
-    std::thread            server([&] {
-        TlsStream stream = TlsStream::acceptServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem,
-                                                   cert.keyPem);
+    std::thread server([&] {
+        TlsStream stream =
+            TlsStream::acceptServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem, cert.keyPem);
         serverOk = stream.ok();
         if (serverOk)
         {
@@ -91,8 +90,8 @@ TEST(Tls, ClientRejectsWrongHostname)
 
     // The cert's SAN is "localhost"; a different expected hostname must fail
     // verification rather than silently accept the chain-valid certificate.
-    TlsStream client =
-        TlsStream::connectClient(static_cast<std::uintptr_t>(fds[1]), "wrong.example", cert.certPem);
+    TlsStream client = TlsStream::connectClient(static_cast<std::uintptr_t>(fds[1]),
+                                                "wrong.example", cert.certPem);
     EXPECT_FALSE(client.ok());
 
     ::close(fds[1]); // EOF so the server's SSL_accept unblocks

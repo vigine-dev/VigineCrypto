@@ -1,11 +1,10 @@
 #include "vigine/crypto/random.h"
 
-#include <openssl/rand.h>
-
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <openssl/rand.h>
 
 namespace vigine::crypto
 {
@@ -22,9 +21,8 @@ void runCsprngSelfCheck()
     {
         if (RAND_poll() != 1 || RAND_status() != 1)
         {
-            std::fprintf(stderr,
-                         "[crypto.random.csprng_unseeded] OpenSSL CSPRNG is not seeded "
-                         "and entropy polling failed\n");
+            std::fprintf(stderr, "[crypto.random.csprng_unseeded] OpenSSL CSPRNG is not seeded "
+                                 "and entropy polling failed\n");
             std::abort();
         }
     }
@@ -34,9 +32,8 @@ void runCsprngSelfCheck()
     unsigned char probe[32];
     if (RAND_bytes(probe, static_cast<int>(sizeof(probe))) != 1)
     {
-        std::fprintf(stderr,
-                     "[crypto.random.csprng_probe_failure] OpenSSL CSPRNG reports seeded "
-                     "but a probe draw failed\n");
+        std::fprintf(stderr, "[crypto.random.csprng_probe_failure] OpenSSL CSPRNG reports seeded "
+                             "but a probe draw failed\n");
         std::abort();
     }
 }
@@ -53,7 +50,7 @@ void randomBytes(std::span<std::byte> out)
 {
     ensureCsprngReady();
 
-    auto       *cursor    = reinterpret_cast<unsigned char *>(out.data());
+    auto *cursor          = reinterpret_cast<unsigned char *>(out.data());
     std::size_t remaining = out.size();
 
     // RAND_bytes takes an int length; chunk so an oversized span can never
@@ -66,9 +63,9 @@ void randomBytes(std::span<std::byte> out)
             std::fprintf(stderr, "[crypto.random.rand_bytes_failure] CSPRNG backend failed\n");
             std::abort();
         }
-        cursor += chunk;
+        cursor    += chunk;
         remaining -= static_cast<std::size_t>(chunk);
     }
 }
 
-}
+} // namespace vigine::crypto

@@ -1,9 +1,8 @@
-#include <gtest/gtest.h>
-
 #include "vigine/crypto/random.h"
 
 #include <array>
 #include <cstddef>
+#include <gtest/gtest.h>
 #include <span>
 
 namespace
@@ -17,7 +16,7 @@ bool allZero(std::span<const std::byte> bytes)
     return true;
 }
 
-}
+} // namespace
 
 TEST(CryptoRandom, FillsBufferNonZero)
 {
