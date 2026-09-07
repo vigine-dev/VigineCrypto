@@ -1,9 +1,8 @@
-#include <gtest/gtest.h>
-
 #include "vigine/crypto/aesgcm.h"
 
 #include <array>
 #include <cstddef>
+#include <gtest/gtest.h>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -29,7 +28,7 @@ std::array<std::byte, vigine::crypto::kAesGcmNonceSize> sampleNonce()
     return nonce;
 }
 
-}
+} // namespace
 
 TEST(AesGcm, SealOpenRoundTrip)
 {
@@ -37,8 +36,8 @@ TEST(AesGcm, SealOpenRoundTrip)
     const auto nonce     = sampleNonce();
     const auto plaintext = bytesOf("attack at dawn");
 
-    const auto sealed = vigine::crypto::seal(key, nonce, plaintext);
-    const auto opened = vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag);
+    const auto sealed    = vigine::crypto::seal(key, nonce, plaintext);
+    const auto opened    = vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag);
 
     ASSERT_TRUE(opened.has_value());
     EXPECT_EQ(*opened, plaintext);
@@ -51,11 +50,12 @@ TEST(AesGcm, RoundTripWithAssociatedData)
     const auto plaintext = bytesOf("body");
     const auto aad       = bytesOf("header-v1");
 
-    const auto sealed = vigine::crypto::seal(key, nonce, plaintext, aad);
+    const auto sealed    = vigine::crypto::seal(key, nonce, plaintext, aad);
     EXPECT_TRUE(vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, aad).has_value());
     // Wrong associated data must fail authentication.
     EXPECT_FALSE(
-        vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, bytesOf("header-v2")).has_value());
+        vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, bytesOf("header-v2"))
+            .has_value());
 }
 
 TEST(AesGcm, RejectsTamperedTag)
@@ -64,8 +64,8 @@ TEST(AesGcm, RejectsTamperedTag)
     const auto nonce     = sampleNonce();
     const auto plaintext = bytesOf("secret");
 
-    auto sealed = vigine::crypto::seal(key, nonce, plaintext);
-    sealed.tag[0] = static_cast<std::byte>(static_cast<unsigned>(sealed.tag[0]) ^ 0xFFu);
+    auto sealed          = vigine::crypto::seal(key, nonce, plaintext);
+    sealed.tag[0]        = static_cast<std::byte>(static_cast<unsigned>(sealed.tag[0]) ^ 0xFFu);
     EXPECT_FALSE(vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag).has_value());
 }
 
@@ -76,14 +76,14 @@ TEST(AesGcm, RejectsWrongKey)
     const auto nonce     = sampleNonce();
     const auto plaintext = bytesOf("secret");
 
-    const auto sealed = vigine::crypto::seal(key, nonce, plaintext);
+    const auto sealed    = vigine::crypto::seal(key, nonce, plaintext);
     EXPECT_FALSE(vigine::crypto::open(other, nonce, sealed.ciphertext, sealed.tag).has_value());
 }
 
 TEST(AesGcm, EmptyPlaintextRoundTrips)
 {
-    const auto key   = vigine::crypto::AesGcmKey::random();
-    const auto nonce = sampleNonce();
+    const auto key    = vigine::crypto::AesGcmKey::random();
+    const auto nonce  = sampleNonce();
 
     const auto sealed = vigine::crypto::seal(key, nonce, {});
     const auto opened = vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag);
@@ -104,6 +104,6 @@ TEST(AesGcm, AssociatedDataOnlyEmptyPlaintext)
     const auto opened = vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, aad);
     ASSERT_TRUE(opened.has_value());
     EXPECT_TRUE(opened->empty());
-    EXPECT_FALSE(
-        vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, bytesOf("other")).has_value());
+    EXPECT_FALSE(vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, bytesOf("other"))
+                     .has_value());
 }

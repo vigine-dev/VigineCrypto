@@ -39,14 +39,16 @@ class X25519SecretKey
     X25519SecretKey &operator=(X25519SecretKey &&other) noexcept;
     ~X25519SecretKey();
 
-    void withBytes(const std::function<void(std::span<const std::byte, kX25519PrivateKeySize>)> &reader) const;
+    void withBytes(
+        const std::function<void(std::span<const std::byte, kX25519PrivateKeySize>)> &reader) const;
 
   private:
     explicit X25519SecretKey(std::span<const std::byte, kX25519PrivateKeySize> scalar);
 
     friend struct X25519KeyPair;
     friend X25519KeyPair generateX25519KeyPair();
-    friend X25519KeyPair x25519KeyPairFromScalar(std::span<const std::byte, kX25519PrivateKeySize> scalar);
+    friend X25519KeyPair
+    x25519KeyPairFromScalar(std::span<const std::byte, kX25519PrivateKeySize> scalar);
 
     std::array<std::byte, kX25519PrivateKeySize> _bytes{};
 };
@@ -61,7 +63,8 @@ struct X25519KeyPair
 
 // Deterministically rebuild a key pair from a 32-byte scalar (restored from secure
 // storage, or an RFC 7748 test vector). The public key is the scalar's curve point.
-[[nodiscard]] X25519KeyPair x25519KeyPairFromScalar(std::span<const std::byte, kX25519PrivateKeySize> scalar);
+[[nodiscard]] X25519KeyPair
+x25519KeyPairFromScalar(std::span<const std::byte, kX25519PrivateKeySize> scalar);
 
 // X25519 ECDH: the shared secret between our secret key and a peer's public key.
 // Returns nullopt when the peer key is a low-order point (OpenSSL's X25519 derive
@@ -70,6 +73,6 @@ struct X25519KeyPair
 // whole open path is abort-free: any failure to load it or to set up the derive
 // also answers nullopt.
 [[nodiscard]] std::optional<std::array<std::byte, kX25519SharedSecretSize>>
-    x25519SharedSecret(const X25519SecretKey &secretKey, const X25519PublicKey &peerPublicKey);
+x25519SharedSecret(const X25519SecretKey &secretKey, const X25519PublicKey &peerPublicKey);
 
 } // namespace vigine::crypto

@@ -1,10 +1,9 @@
-#include "vigine/crypto/ed25519.h"
-
 #include "cryptodetail.h"
 
-#include <openssl/crypto.h>
+#include "vigine/crypto/ed25519.h"
 
 #include <algorithm>
+#include <openssl/crypto.h>
 
 namespace vigine::crypto
 {
@@ -45,10 +44,7 @@ Ed25519SecretKey &Ed25519SecretKey::operator=(Ed25519SecretKey &&other) noexcept
     return *this;
 }
 
-Ed25519SecretKey::~Ed25519SecretKey()
-{
-    OPENSSL_cleanse(_bytes.data(), _bytes.size());
-}
+Ed25519SecretKey::~Ed25519SecretKey() { OPENSSL_cleanse(_bytes.data(), _bytes.size()); }
 
 void Ed25519SecretKey::withBytes(
     const std::function<void(std::span<const std::byte, kEd25519SeedSize>)> &reader) const
@@ -63,21 +59,22 @@ Ed25519KeyPair generateKeyPair()
         fatal("crypto.ed25519.keygen");
 
     std::array<std::byte, kEd25519PublicKeySize> publicBytes{};
-    std::array<std::byte, kEd25519SeedSize>      seedBytes{};
-    std::size_t                                  publicLen = publicBytes.size();
-    std::size_t                                  seedLen   = seedBytes.size();
+    std::array<std::byte, kEd25519SeedSize> seedBytes{};
+    std::size_t publicLen = publicBytes.size();
+    std::size_t seedLen   = seedBytes.size();
 
-    if (EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<unsigned char *>(publicBytes.data()),
-                                    &publicLen) != 1
-        || publicLen != kEd25519PublicKeySize)
+    if (EVP_PKEY_get_raw_public_key(
+            pkey.get(), reinterpret_cast<unsigned char *>(publicBytes.data()), &publicLen) != 1 ||
+        publicLen != kEd25519PublicKeySize)
         fatal("crypto.ed25519.export_public");
-    if (EVP_PKEY_get_raw_private_key(pkey.get(), reinterpret_cast<unsigned char *>(seedBytes.data()),
-                                     &seedLen) != 1
-        || seedLen != kEd25519SeedSize)
+    if (EVP_PKEY_get_raw_private_key(
+            pkey.get(), reinterpret_cast<unsigned char *>(seedBytes.data()), &seedLen) != 1 ||
+        seedLen != kEd25519SeedSize)
         fatal("crypto.ed25519.export_private");
 
-    Ed25519KeyPair pair{Ed25519PublicKey{std::span<const std::byte, kEd25519PublicKeySize>{publicBytes}},
-                        Ed25519SecretKey{std::span<const std::byte, kEd25519SeedSize>{seedBytes}}};
+    Ed25519KeyPair pair{
+        Ed25519PublicKey{std::span<const std::byte, kEd25519PublicKeySize>{publicBytes}},
+        Ed25519SecretKey{std::span<const std::byte, kEd25519SeedSize>{seedBytes}}};
     OPENSSL_cleanse(seedBytes.data(), seedBytes.size());
     return pair;
 }
@@ -92,10 +89,10 @@ Ed25519KeyPair keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed
         fatal("crypto.ed25519.load_seed");
 
     std::array<std::byte, kEd25519PublicKeySize> publicBytes{};
-    std::size_t                                  publicLen = publicBytes.size();
-    if (EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<unsigned char *>(publicBytes.data()),
-                                    &publicLen) != 1
-        || publicLen != kEd25519PublicKeySize)
+    std::size_t publicLen = publicBytes.size();
+    if (EVP_PKEY_get_raw_public_key(
+            pkey.get(), reinterpret_cast<unsigned char *>(publicBytes.data()), &publicLen) != 1 ||
+        publicLen != kEd25519PublicKeySize)
         fatal("crypto.ed25519.derive_public");
 
     return Ed25519KeyPair{
@@ -108,9 +105,9 @@ std::array<std::byte, kEd25519SignatureSize> sign(const Ed25519SecretKey &secret
 {
     std::array<std::byte, kEd25519SignatureSize> signature{};
     secretKey.withBytes([&](std::span<const std::byte, kEd25519SeedSize> seed) {
-        PkeyPtr pkey{EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr,
-                                                  reinterpret_cast<const unsigned char *>(seed.data()),
-                                                  seed.size()),
+        PkeyPtr pkey{EVP_PKEY_new_raw_private_key(
+                         EVP_PKEY_ED25519, nullptr,
+                         reinterpret_cast<const unsigned char *>(seed.data()), seed.size()),
                      &EVP_PKEY_free};
         if (!pkey)
             fatal("crypto.ed25519.load_private");
@@ -118,9 +115,10 @@ std::array<std::byte, kEd25519SignatureSize> sign(const Ed25519SecretKey &secret
         if (!ctx || EVP_DigestSignInit(ctx.get(), nullptr, nullptr, nullptr, pkey.get()) != 1)
             fatal("crypto.ed25519.sign_init");
         std::size_t signatureLen = signature.size();
-        if (EVP_DigestSign(ctx.get(), reinterpret_cast<unsigned char *>(signature.data()), &signatureLen,
-                           reinterpret_cast<const unsigned char *>(message.data()), message.size()) != 1
-            || signatureLen != kEd25519SignatureSize)
+        if (EVP_DigestSign(ctx.get(), reinterpret_cast<unsigned char *>(signature.data()),
+                           &signatureLen, reinterpret_cast<const unsigned char *>(message.data()),
+                           message.size()) != 1 ||
+            signatureLen != kEd25519SignatureSize)
             fatal("crypto.ed25519.sign");
     });
     return signature;
@@ -130,20 +128,20 @@ bool verify(const Ed25519PublicKey &publicKey, std::span<const std::byte> messag
             std::span<const std::byte, kEd25519SignatureSize> signature)
 {
     const auto publicBytes = publicKey.bytes();
-    PkeyPtr    pkey{EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr,
-                                                reinterpret_cast<const unsigned char *>(publicBytes.data()),
-                                                publicBytes.size()),
-                    &EVP_PKEY_free};
+    PkeyPtr pkey{
+        EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr,
+                                    reinterpret_cast<const unsigned char *>(publicBytes.data()),
+                                    publicBytes.size()),
+        &EVP_PKEY_free};
     if (!pkey)
         fatal("crypto.ed25519.load_public");
     MdCtxPtr ctx{EVP_MD_CTX_new(), &EVP_MD_CTX_free};
     if (!ctx || EVP_DigestVerifyInit(ctx.get(), nullptr, nullptr, nullptr, pkey.get()) != 1)
         fatal("crypto.ed25519.verify_init");
-    const int result =
-        EVP_DigestVerify(ctx.get(), reinterpret_cast<const unsigned char *>(signature.data()),
-                         signature.size(), reinterpret_cast<const unsigned char *>(message.data()),
-                         message.size());
+    const int result = EVP_DigestVerify(
+        ctx.get(), reinterpret_cast<const unsigned char *>(signature.data()), signature.size(),
+        reinterpret_cast<const unsigned char *>(message.data()), message.size());
     return result == 1;
 }
 
-}
+} // namespace vigine::crypto

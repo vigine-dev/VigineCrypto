@@ -1,10 +1,9 @@
-#include <gtest/gtest.h>
-
 #include "vigine/crypto/ed25519.h"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <gtest/gtest.h>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -39,11 +38,11 @@ std::array<std::byte, N> fromHex(std::string_view hex)
     return out;
 }
 
-}
+} // namespace
 
 TEST(Ed25519, SignVerifyRoundTrip)
 {
-    auto       pair      = vigine::crypto::generateKeyPair();
+    auto pair            = vigine::crypto::generateKeyPair();
     const auto message   = bytesOf("the quick brown fox");
     const auto signature = vigine::crypto::sign(pair.secretKey, message);
     EXPECT_TRUE(vigine::crypto::verify(pair.publicKey, message, signature));
@@ -51,8 +50,8 @@ TEST(Ed25519, SignVerifyRoundTrip)
 
 TEST(Ed25519, RejectsTamperedMessage)
 {
-    auto       pair      = vigine::crypto::generateKeyPair();
-    auto       message   = bytesOf("authentic");
+    auto pair            = vigine::crypto::generateKeyPair();
+    auto message         = bytesOf("authentic");
     const auto signature = vigine::crypto::sign(pair.secretKey, message);
     message[0]           = static_cast<std::byte>(0xFF);
     EXPECT_FALSE(vigine::crypto::verify(pair.publicKey, message, signature));
@@ -60,8 +59,8 @@ TEST(Ed25519, RejectsTamperedMessage)
 
 TEST(Ed25519, RejectsWrongKey)
 {
-    auto       signer    = vigine::crypto::generateKeyPair();
-    auto       other     = vigine::crypto::generateKeyPair();
+    auto signer          = vigine::crypto::generateKeyPair();
+    auto other           = vigine::crypto::generateKeyPair();
     const auto message   = bytesOf("hello");
     const auto signature = vigine::crypto::sign(signer.secretKey, message);
     EXPECT_FALSE(vigine::crypto::verify(other.publicKey, message, signature));
@@ -69,8 +68,8 @@ TEST(Ed25519, RejectsWrongKey)
 
 TEST(Ed25519, MovedSecretKeyStillSigns)
 {
-    auto       pair      = vigine::crypto::generateKeyPair();
-    auto       moved     = std::move(pair.secretKey);
+    auto pair            = vigine::crypto::generateKeyPair();
+    auto moved           = std::move(pair.secretKey);
     const auto message   = bytesOf("after move");
     const auto signature = vigine::crypto::sign(moved, message);
     EXPECT_TRUE(vigine::crypto::verify(pair.publicKey, message, signature));
@@ -89,7 +88,7 @@ TEST(Ed25519, Rfc8032TestVector1KnownAnswer)
         "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e0652249015"
         "55fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b");
 
-    auto       pair        = vigine::crypto::keyPairFromSeed(
+    auto pair = vigine::crypto::keyPairFromSeed(
         std::span<const std::byte, vigine::crypto::kEd25519SeedSize>{seed});
     const auto publicBytes = pair.publicKey.bytes();
     EXPECT_TRUE(std::equal(publicBytes.begin(), publicBytes.end(), expectedPublic.begin()));
@@ -101,9 +100,9 @@ TEST(Ed25519, Rfc8032TestVector1KnownAnswer)
 
 TEST(Ed25519, RejectsTamperedSignatureBytes)
 {
-    auto       pair      = vigine::crypto::generateKeyPair();
-    const auto message   = bytesOf("pin me");
-    auto       signature = vigine::crypto::sign(pair.secretKey, message);
-    signature[0] = static_cast<std::byte>(static_cast<unsigned>(signature[0]) ^ 0xFFu);
+    auto pair          = vigine::crypto::generateKeyPair();
+    const auto message = bytesOf("pin me");
+    auto signature     = vigine::crypto::sign(pair.secretKey, message);
+    signature[0]       = static_cast<std::byte>(static_cast<unsigned>(signature[0]) ^ 0xFFu);
     EXPECT_FALSE(vigine::crypto::verify(pair.publicKey, message, signature));
 }

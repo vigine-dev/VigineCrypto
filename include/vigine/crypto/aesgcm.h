@@ -18,7 +18,7 @@ inline constexpr std::size_t kAesGcmTagSize   = 16; // 128-bit auth tag
 // bytes are reachable only inside withBytes.
 class AesGcmKey
 {
-public:
+  public:
     explicit AesGcmKey(std::span<const std::byte, kAesGcmKeySize> bytes);
     [[nodiscard]] static AesGcmKey random();
 
@@ -28,22 +28,25 @@ public:
     AesGcmKey &operator=(AesGcmKey &&other) noexcept;
     ~AesGcmKey();
 
-    void withBytes(const std::function<void(std::span<const std::byte, kAesGcmKeySize>)> &reader) const;
+    void
+    withBytes(const std::function<void(std::span<const std::byte, kAesGcmKeySize>)> &reader) const;
 
-private:
+  private:
     std::array<std::byte, kAesGcmKeySize> _bytes{};
 };
 
 struct AesGcmSealed
 {
-    std::vector<std::byte>                ciphertext;
+    std::vector<std::byte> ciphertext;
     std::array<std::byte, kAesGcmTagSize> tag{};
 };
 
 // Authenticated encryption. The caller supplies a unique nonce per key; the
 // optional associated data is authenticated but not encrypted.
-[[nodiscard]] AesGcmSealed seal(const AesGcmKey &key, std::span<const std::byte, kAesGcmNonceSize> nonce,
-                                std::span<const std::byte> plaintext, std::span<const std::byte> aad = {});
+[[nodiscard]] AesGcmSealed seal(const AesGcmKey &key,
+                                std::span<const std::byte, kAesGcmNonceSize> nonce,
+                                std::span<const std::byte> plaintext,
+                                std::span<const std::byte> aad = {});
 
 // Returns the plaintext only if the tag and associated data verify; any
 // tampering yields nullopt rather than forged output.
@@ -52,4 +55,4 @@ open(const AesGcmKey &key, std::span<const std::byte, kAesGcmNonceSize> nonce,
      std::span<const std::byte> ciphertext, std::span<const std::byte, kAesGcmTagSize> tag,
      std::span<const std::byte> aad = {});
 
-}
+} // namespace vigine::crypto

@@ -19,4 +19,4 @@ void ensureCsprngReady();
 // and a failure (which it does not produce under normal operation) is fatal.
 void randomBytes(std::span<std::byte> out);
 
-}
+} // namespace vigine::crypto

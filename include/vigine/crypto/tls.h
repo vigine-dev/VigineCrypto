@@ -27,10 +27,10 @@ struct SelfSignedCert
 // certificate and hostname -- there is no "skip verification" knob.
 class TlsStream
 {
-public:
+  public:
     // Client handshake. If trustedCertPem is non-empty it is the sole trusted
     // root (self-signed / pinning); otherwise the system trust store is used.
-    [[nodiscard]] static TlsStream connectClient(std::uintptr_t   connectedSocket,
+    [[nodiscard]] static TlsStream connectClient(std::uintptr_t connectedSocket,
                                                  std::string_view expectedHostname,
                                                  std::string_view trustedCertPem = {});
 
@@ -49,12 +49,12 @@ public:
 
     [[nodiscard]] bool writeAll(std::span<const std::byte> data) noexcept;
     [[nodiscard]] bool readExact(std::span<std::byte> data) noexcept;
-    void               shutdown() noexcept;
+    void shutdown() noexcept;
 
-private:
+  private:
     struct State;
     explicit TlsStream(std::unique_ptr<State> state) noexcept;
     std::unique_ptr<State> _state;
 };
 
-}
+} // namespace vigine::crypto

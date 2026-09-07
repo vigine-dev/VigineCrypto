@@ -15,6 +15,7 @@ namespace vigine::crypto
 // empty result as an error.
 [[nodiscard]] std::vector<std::byte> hkdfSha256(std::span<const std::byte> secret,
                                                 std::span<const std::byte> salt,
-                                                std::span<const std::byte> info, std::size_t outLength);
+                                                std::span<const std::byte> info,
+                                                std::size_t outLength);
 
 } // namespace vigine::crypto
