@@ -1,2 +1,11 @@
-id      = "no-implicit-bool"
-extends = "no-implicit-bool"
+id       = "no-implicit-bool"
+kind     = "backend-check"
+severity = "warning"
+message  = "A value became a bool without saying so"
+guidance = "Compare it to what you mean -- `pointer != nullptr`, `count > 0`. A pointer, an integer and a bool all read as a condition, so the implicit form hides which of the three a reader is looking at."
+
+[params]
+# The one backend that is told which checks to run: handed none, it
+# runs with everything disabled and reports a clean project.
+backend = "clang-tidy"
+checks  = ["readability-implicit-bool-conversion"]

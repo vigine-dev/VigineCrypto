@@ -1,5 +1,14 @@
-id      = "names-follow-roles"
-extends = "names-follow-roles"
+id       = "names-follow-roles"
+kind     = "names-follow-roles"
+severity = "error"
+message  = "Class name does not tell its role"
+guidance = "A class of nothing but pure virtual methods is an interface and is named I*; one that mixes them with implementation is abstract and is named Abstract*; a class that implements everything claims neither. Rename it at every use rather than weakening the rule"
 
 [params]
+interface-prefix = "I"
+abstract-prefix  = "Abstract"
+
+
+subject = ["**/src/**", "**/include/**"]
+allowed-in = ["**/test/**"]
 namespaces = ["vigine"]

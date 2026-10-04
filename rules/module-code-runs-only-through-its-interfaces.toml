@@ -1,2 +1,31 @@
-id      = "module-code-runs-only-through-its-interfaces"
-extends = "module-code-runs-only-through-its-interfaces"
+id       = "module-code-runs-only-through-its-interfaces"
+kind     = "entry-scope"
+severity = "error"
+message  = "Code runs outside its unit's interfaces"
+guidance = "Reach it through what the unit offers, or move it behind an interface; do no work at load"
+
+[params]
+# Every module and every library that is not business logic. A unit is a
+# build target; a module is one built with the passport.
+applies-to-role      = "other"
+subject              = ["target:*"]
+
+# What a unit offers: what it declares in a public include directory
+# another target is compiled against (its interfaces and their
+# factories), and a module's exported entry points. A call on an
+# interface reaches every implementation of it.
+scope = ["exported:*", "name:vigine_module_*", "name:vigine_kernel_*"]
+
+# Work done at load -- a namespace-scope initialiser calling something,
+# a global object of the program's own type, a thread it starts -- runs
+# outside every interface.
+roots = ["static-init:*"]
+
+# Code nothing the unit offers reaches, and a call from another unit that
+# lands past what it offers.
+report-unreached = "true"
+report-crossing  = "true"
+
+exempt-subject = ["glm::*", "std::*", "toml::*", "nlohmann::*"]
+allowed-in     = ["**/test/**", "**/external/*/external/**"]
+business-logic-units = []

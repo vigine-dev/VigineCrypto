@@ -1,2 +1,4 @@
-id      = "no-open-fields"
-extends = "no-open-fields"
+id       = "no-open-fields"
+kind     = "member-visibility"
+severity = "error"
+message  = "Data members stay private"

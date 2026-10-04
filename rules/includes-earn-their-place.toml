@@ -1,2 +1,57 @@
-id      = "includes-earn-their-place"
-extends = "includes-earn-their-place"
+id       = "includes-earn-their-place"
+kind     = "backend-check"
+severity = "warning"
+message  = "An include nothing in the file uses"
+guidance = "Drop the include, or use what it brings. An include kept past its last use makes every file that reads this one pay for a header it does not need, and hides which headers the file actually stands on."
+
+[params]
+# clang-include-cleaner builds an AST, so it needs the flags each file
+# was compiled with and takes the compile database. It has no notion of
+# checks either -- the question it answers is fixed.
+backend = "clang-include-cleaner"
+# What the tool reports here: "unused" (the includes nothing uses), "missing"
+# (names that arrive through another header), or "both".
+reports = "unused"
+
+# Which header provides which names (round 4). clang-include-cleaner credits a
+# name to the header that declares it; an include that is the only provider
+# in the file's include set of a name the file uses is not unused.
+providers = [
+    "glm/glm.hpp : glm::",
+    "glm/vec2.hpp : glm::vec2 glm::ivec2 glm::uvec2 glm::dvec2",
+    "glm/vec3.hpp : glm::vec3 glm::ivec3 glm::uvec3 glm::dvec3",
+    "glm/vec4.hpp : glm::vec4 glm::ivec4 glm::uvec4 glm::dvec4",
+    "glm/mat3x3.hpp : glm::mat3",
+    "glm/mat4x4.hpp : glm::mat4",
+    "glm/geometric.hpp : glm::dot glm::cross glm::normalize glm::length glm::distance",
+    "glm/gtc/matrix_transform.hpp : glm::translate glm::rotate glm::scale glm::perspective glm::ortho glm::lookAt glm::frustum",
+    "glm/gtc/type_ptr.hpp : glm::value_ptr glm::make_mat4 glm::make_vec3",
+    "glm/gtc/quaternion.hpp : glm::quat glm::angleAxis glm::mat4_cast glm::quat_cast glm::eulerAngles glm::slerp",
+    "QuartzCore/CAMetalLayer.h : CAMetalLayer",
+    "toml++/toml.hpp : toml::",
+    "algorithm : std::min std::max std::any_of std::all_of std::none_of std::find std::find_if std::sort std::stable_sort std::remove std::remove_if std::clamp std::count std::count_if std::transform std::copy std::copy_if std::fill std::reverse std::unique std::lower_bound std::upper_bound std::equal std::for_each std::max_element std::min_element std::partition std::rotate",
+    "chrono : std::chrono:: std::chrono_literals::",
+    "fstream : std::ifstream std::ofstream std::fstream",
+    "iterator : std::begin std::end std::back_inserter std::istreambuf_iterator std::ostreambuf_iterator std::next std::prev std::distance std::size std::data",
+    "string_view : std::string_view",
+    "array : std::array",
+    "string : std::string std::to_string std::stoi std::stol std::stoul std::stoull std::stod std::getline",
+    "memory : std::unique_ptr std::shared_ptr std::weak_ptr std::make_unique std::make_shared",
+    "sys/file.h : flock LOCK_EX LOCK_SH LOCK_UN LOCK_NB",
+    "sys/time.h : timeval gettimeofday",
+    "sys/select.h : FD_SET FD_ZERO FD_ISSET FD_CLR fd_set select",
+    "arpa/inet.h : htons htonl ntohs ntohl inet_pton inet_ntop",
+    "sys/types.h : pid_t off_t ssize_t",
+    "mach/mach.h : mach_* task_info",
+    "Cocoa/Cocoa.h : NS* CG*",
+    "Metal/Metal.h : MTL*",
+    "QuartzCore/QuartzCore.h : CA*",
+    "CoreServices/CoreServices.h : FS* kFS* LS*",
+    "CoreFoundation/CoreFoundation.h : CF* kCF*",
+    "Security/Security.h : Sec* kSec* errSec*",
+    "ft2build.h : FT_*",
+    "freetype/** : FT_*",
+]
+# Files of another platform's branch: analysed with this host's flags, so
+# every include they need there reads unused here.
+not-built-here = ["**/*_windows.cpp", "**/*_windows.h", "**/*_linux.cpp", "**/*_linux.h"]

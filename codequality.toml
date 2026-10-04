@@ -1,5 +1,5 @@
-# This project's own quality rules. Each file under rules/ extends a standard rule of the
-# checker's library (codequality --library <CodeQuality>/docs/rules) and may override its params.
+# This project's own quality rules: complete files under rules/, read as written. No rule is
+# shared with another project; a rule two projects have is duplicated on purpose.
 [scan]
 mode    = "full"
 include = ["src", "include", "test"]

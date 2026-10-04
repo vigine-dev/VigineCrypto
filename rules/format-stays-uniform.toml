@@ -1,2 +1,12 @@
-id      = "format-stays-uniform"
-extends = "format-stays-uniform"
+id       = "format-stays-uniform"
+kind     = "backend-check"
+severity = "warning"
+message  = "Formatting drifted from the style file"
+guidance = "Run the formatter over the file. The style file at the repository root is the whole answer to how code is laid out, so a hand-reflowed block makes every later diff carry whitespace nobody meant to change."
+
+[params]
+# clang-format reads a file on its own, so it takes every source in
+# scope rather than a compile database -- which is the only way a
+# header is ever looked at, since a compile database lists translation
+# units and a header is not one. It has no notion of checks.
+backend = "clang-format"

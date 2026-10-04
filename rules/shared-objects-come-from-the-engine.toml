@@ -1,2 +1,59 @@
-id      = "shared-objects-come-from-the-engine"
-extends = "shared-objects-come-from-the-engine"
+id       = "shared-objects-come-from-the-engine"
+kind     = "call-path"
+severity = "error"
+message  = "A shared object is put on the heap without the engine's allocator"
+guidance = "Build it with vigine::memory::make_shared and the owning tag"
+
+[params]
+max-paths = "200000"
+# Every caller is asked; the question is what it reaches.
+symbol = "*"
+
+# The companion question to objects-come-from-the-engine, and it has to
+# be asked separately.
+#
+# That rule follows the CONSTRUCTION and keeps only what a new-expression
+# allocated. std::make_shared never trips it: the object is built with
+# placement new inside the shared control block, and placement new is
+# deliberately not counted -- it allocates nothing, and counting it would
+# mark the engine's own factories, which build into a block they already
+# drew from a tag.
+#
+# So this asks the other way round. make_shared is reached by a CALL, and
+# a call is a thing the graph records plainly.
+subject = [
+    "name:std::make_shared<*",
+    "name:std::allocate_shared<*",
+]
+uses = ["call"]
+
+# Report at the call site, not at the subject. A constructor is not a
+# line anybody edits, and std::make_shared lives in <memory> -- blamed
+# there, a finding carries that header's line with the including file's
+# name, which is a location that does not exist.
+report-at = "caller"
+
+# A value type is not what this asks about. A promise, a small state
+# cell, a vector of floats -- routing those through a tag buys nothing
+# and would put a finding on every one of them. The question is about
+# objects the engine owns and would otherwise never see in its report.
+exempt-subject = [
+    "name:std::make_shared<std::*",
+    "name:std::make_shared<glm::*",
+    "name:std::allocate_shared<std::*",
+    "name:std::allocate_shared<glm::*",
+]
+
+
+# Reaching a shared object THROUGH the engine is the answer, not the
+# offence: vigine::memory::make_shared fuses the control block and the
+# object into one allocation drawn from the allocator bound to a tag. A
+# route that passes it has done the right thing; one that does not has
+# put an object somewhere the memory report will never show.
+require-ancestor = [
+    "name:vigine::memory::make_shared<*",
+    "name:vigine::memory::make_unique<*",
+    "name:vigine::memory::adopt<*",
+]
+allowed-in = ["**/test/**", "**/build/**"]
+modules = ["app:**/src/**"]
