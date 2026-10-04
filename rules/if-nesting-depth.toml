@@ -1,0 +1,11 @@
+id       = "if-nesting-depth"
+kind     = "if-nesting"
+severity = "error"
+message  = "If-nesting deeper than three levels"
+guidance = "Lift the outer conditions into early returns, or give the inner ones a named function of their own -- the fourth level is where a reader stops being able to say why a line runs"
+
+[params]
+max-levels = "3"
+
+subject = ["**/src/**", "**/include/**"]
+allowed-in = ["**/test/**"]

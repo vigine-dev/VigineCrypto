@@ -1,0 +1,11 @@
+id       = "base-destructor"
+kind     = "base-destructor"
+severity = "error"
+message  = "A base class does not say how it may be destroyed"
+guidance = "Deleting a derived object through a pointer to a base whose destructor is public and not virtual never destroys the derived part. Make the destructor virtual if anything is meant to delete through this base. Otherwise make it protected: that does not leave the deletion broken, it stops it compiling -- outside code holding only a base pointer may not call a protected destructor, so the dangerous line cannot be written in the first place"
+
+[params]
+
+subject = ["**/src/**", "**/include/**"]
+allowed-in = ["**/test/**"]
+namespaces = ["vigine"]

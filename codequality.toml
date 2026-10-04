@@ -1,0 +1,14 @@
+# This project's own quality rules: complete files under rules/, read as written. No rule is
+# shared with another project; a rule two projects have is duplicated on purpose.
+[scan]
+mode    = "full"
+include = ["src", "include", "test"]
+exclude = ["build", "build*/**", "**/CMakeFiles/**", "external/**"]
+
+[rules]
+path = "rules"
+
+[backends]
+clang-tidy            = true
+clang-format          = true
+clang-include-cleaner = true

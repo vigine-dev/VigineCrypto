@@ -1,0 +1,10 @@
+id       = "functions-stay-readable"
+kind     = "function-length"
+severity = "warning"
+message  = "A function should fit on a screen"
+guidance = "Split the body into named steps; the name of each step is the comment you no longer need"
+
+[params]
+# The one sixty-line rule for every own repository (CodeQuality #107). Lambda
+# bodies are measured once CodeParser #237 lands.
+max-lines = 60

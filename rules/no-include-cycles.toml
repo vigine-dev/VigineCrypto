@@ -1,0 +1,4 @@
+id       = "no-include-cycles"
+kind     = "include-cycle"
+severity = "error"
+message  = "Include cycles make headers order-dependent"

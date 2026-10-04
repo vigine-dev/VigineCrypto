@@ -1,0 +1,6 @@
+id       = "interfaces-carry-no-state"
+kind     = "naming-convention"
+severity = "warning"
+message  = "An I-name promises a pure interface"
+
+[params]

@@ -1,0 +1,11 @@
+id       = "rule-of-zero-or-five"
+kind     = "rule-of-zero-or-five"
+severity = "error"
+message  = "Special members declared partially"
+guidance = "Declare none of the five special members or all of them; = default and = delete both count as deciding. Declaring only some is what silently turns a move into a copy, and a class that owns something then releases it twice. A lone virtual defaulted destructor on a polymorphic base is exempt"
+
+[params]
+
+subject = ["**/src/**", "**/include/**"]
+allowed-in = ["**/test/**"]
+namespaces = ["vigine"]

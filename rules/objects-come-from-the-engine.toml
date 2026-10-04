@@ -1,0 +1,57 @@
+id       = "objects-come-from-the-engine"
+kind     = "call-path"
+severity = "error"
+message  = "An object is put on the heap without the engine's allocator"
+guidance = "Build it with vigine::memory::make_unique or make_shared and the owning tag, or adopt a library's pointer with vigine::memory::adopt"
+
+[params]
+max-paths = "200000"
+# Every constructor is asked the same question, and the answer is
+# decided by what reaches it rather than by what it is.
+symbol  = "*"
+subject = ["*"]
+
+# Constructions, and the calls above them.
+#
+# A stack object costs nothing to account for and dies with its scope,
+# so it is not this rule's business -- and a subject nothing allocates
+# drops out of scope entirely rather than being reported as unreached.
+# (heap-only applies to the first step alone, so it still selects on the
+# construction rather than on the calls above it.)
+#
+# Placement new allocates nothing either: it builds into storage the
+# caller already owns, which is exactly what the engine's factories do
+# with the block they drew from a tag. Counting it would mark the one
+# correct way of allocating as the thing this rule exists to find.
+#
+# "call" is here because a route made of constructions alone ENDS at
+# std::make_unique: the step above a factory is a call, not a
+# construction, so the walk ran out of edges exactly one frame short of
+# the human who wrote the line. Two findings landed on constructors in
+# the engine's own headers that way, and the reading that the graph had
+# lost the caller was wrong -- the caller edge was in the store all
+# along, and this rule was not asking for it.
+uses      = ["construct", "call"]
+heap-only = "true"
+
+# Report at the call site, not at the subject. A constructor is not a
+# line anybody edits, and std::make_shared lives in <memory> -- blamed
+# there, a finding carries that header's line with the including file's
+# name, which is a location that does not exist.
+report-at = "caller"
+
+# Reaching the heap THROUGH the engine is the answer, not the offence.
+# make_unique draws from the allocator bound to a tag, make_shared
+# fuses the control block into the same allocation, adopt takes over a
+# pointer a library outside the engine already built, and create hands
+# back raw storage with its geometry remembered. A route that passes
+# any of them has done the right thing; a route that does not has put
+# an object somewhere nobody is accounting for, and the memory report
+# will never show it.
+require-ancestor = [
+    "name:vigine::memory::make_unique<*",
+    "name:vigine::memory::make_shared<*",
+    "name:vigine::memory::adopt<*",
+    "name:vigine::memory::create<*",
+]
+allowed-in = ["**/test/**", "**/build/**"]
