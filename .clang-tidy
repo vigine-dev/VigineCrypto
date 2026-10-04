@@ -1,0 +1,18 @@
+# The profile of the engine: diagnostic-class checks only; modernize-* and readability-* stay off
+# because .clang-format and the rules of this project already govern style. WarningsAsErrors stays
+# empty; turning findings into errors is a per-invocation choice on the clang-tidy command line.
+# portability-avoid-pragma-once is off because this project's rule is #pragma once.
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  concurrency-*,
+  performance-*,
+  portability-*,
+  -bugprone-easily-swappable-parameters,
+  -portability-avoid-pragma-once
+WarningsAsErrors: ''
+# Headers of this project's own folders only; third-party trees are out.
+HeaderFilterRegex: 'include/vigine/|/src/'
+FormatStyle: file
