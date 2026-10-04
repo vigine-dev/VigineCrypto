@@ -18,11 +18,11 @@ struct TlsStream::State
     SSL *ssl{nullptr};
     bool ok{false};
 
-    State() = default;
-    State(const State &) = delete;
-    State(State &&) = delete;
+    State()                         = default;
+    State(const State &)            = delete;
+    State(State &&)                 = delete;
     State &operator=(const State &) = delete;
-    State &operator=(State &&) = delete;
+    State &operator=(State &&)      = delete;
 
     ~State()
     {
