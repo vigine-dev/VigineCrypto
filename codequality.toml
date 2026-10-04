@@ -1,0 +1,14 @@
+# This project's own quality rules. Each file under rules/ extends a standard rule of the
+# checker's library (codequality --library <CodeQuality>/docs/rules) and may override its params.
+[scan]
+mode    = "full"
+include = ["src", "include", "test"]
+exclude = ["build", "build*/**", "**/CMakeFiles/**", "external/**"]
+
+[rules]
+path = "rules"
+
+[backends]
+clang-tidy            = true
+clang-format          = true
+clang-include-cleaner = true

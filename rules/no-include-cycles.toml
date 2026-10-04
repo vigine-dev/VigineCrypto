@@ -1,0 +1,2 @@
+id      = "no-include-cycles"
+extends = "no-include-cycles"
