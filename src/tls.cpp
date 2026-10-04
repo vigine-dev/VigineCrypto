@@ -43,30 +43,15 @@ int nativeFd(std::uintptr_t handle) noexcept
 {
     return static_cast<int>(static_cast<std::intptr_t>(handle));
 }
-} // namespace
 
-SelfSignedCert generateSelfSignedCert(std::string_view hostname)
+void describeCertificate(X509 *certificate, EVP_PKEY *pkey, const std::string &host)
 {
-    SelfSignedCert result;
-
-    EVP_PKEY *pkey = EVP_PKEY_Q_keygen(nullptr, nullptr, "RSA", static_cast<std::size_t>(2048));
-    if (pkey == nullptr)
-        return result;
-
-    X509 *certificate = X509_new();
-    if (certificate == nullptr)
-    {
-        EVP_PKEY_free(pkey);
-        return result;
-    }
-
     X509_set_version(certificate, 2); // X.509 v3
     ASN1_INTEGER_set(X509_get_serialNumber(certificate), 1);
     X509_gmtime_adj(X509_getm_notBefore(certificate), 0);
     X509_gmtime_adj(X509_getm_notAfter(certificate), 60L * 60 * 24 * 365);
     X509_set_pubkey(certificate, pkey);
 
-    const std::string host(hostname);
     X509_NAME *subject = X509_get_subject_name(certificate);
     X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC,
                                reinterpret_cast<const unsigned char *>(host.c_str()), -1, -1, 0);
@@ -82,14 +67,10 @@ SelfSignedCert generateSelfSignedCert(std::string_view hostname)
         X509_add_ext(certificate, ext, -1);
         X509_EXTENSION_free(ext);
     }
+}
 
-    if (X509_sign(certificate, pkey, EVP_sha256()) == 0)
-    {
-        X509_free(certificate);
-        EVP_PKEY_free(pkey);
-        return result; // an unsigned cert is unusable -- honour the empty-on-failure contract
-    }
-
+void writePem(X509 *certificate, EVP_PKEY *pkey, SelfSignedCert &result)
+{
     BIO *certBio = BIO_new(BIO_s_mem());
     BIO *keyBio  = BIO_new(BIO_s_mem());
     if (certBio != nullptr && keyBio != nullptr && PEM_write_bio_X509(certBio, certificate) == 1 &&
@@ -113,6 +94,35 @@ SelfSignedCert generateSelfSignedCert(std::string_view hostname)
         BIO_free(certBio);
     if (keyBio != nullptr)
         BIO_free(keyBio);
+}
+
+} // namespace
+
+SelfSignedCert generateSelfSignedCert(std::string_view hostname)
+{
+    SelfSignedCert result;
+
+    EVP_PKEY *pkey = EVP_PKEY_Q_keygen(nullptr, nullptr, "RSA", static_cast<std::size_t>(2048));
+    if (pkey == nullptr)
+        return result;
+
+    X509 *certificate = X509_new();
+    if (certificate == nullptr)
+    {
+        EVP_PKEY_free(pkey);
+        return result;
+    }
+
+    describeCertificate(certificate, pkey, std::string(hostname));
+
+    if (X509_sign(certificate, pkey, EVP_sha256()) == 0)
+    {
+        X509_free(certificate);
+        EVP_PKEY_free(pkey);
+        return result; // an unsigned cert is unusable -- honour the empty-on-failure contract
+    }
+
+    writePem(certificate, pkey, result);
     X509_free(certificate);
     EVP_PKEY_free(pkey);
     return result;
