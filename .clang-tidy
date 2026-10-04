@@ -15,4 +15,6 @@ Checks: >
 WarningsAsErrors: ''
 # Headers of this project's own folders only; third-party trees are out.
 HeaderFilterRegex: 'include/vigine/|/src/'
+# Third-party trees are excluded by name.
+ExcludeHeaderFilterRegex: '/(llvm-project|glm|freetype|googletest|vulkan-hpp|VulkanMemoryAllocator|mdns_minimal|utf8proc|whisper\.cpp|piper|piper-phonemize-macos-arm64|libxml2|FTXUI|nlohmann|tomlplusplus|blake3|openssl|pdfio|stb|rapidyaml)/'
 FormatStyle: file
