@@ -1,2 +1,5 @@
 id      = "rule-of-zero-or-five"
 extends = "rule-of-zero-or-five"
+
+[params]
+namespaces = ["vigine"]

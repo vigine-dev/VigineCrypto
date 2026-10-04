@@ -1,2 +1,5 @@
 id      = "names-follow-roles"
 extends = "names-follow-roles"
+
+[params]
+namespaces = ["vigine"]

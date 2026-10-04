@@ -1,2 +1,5 @@
 id      = "base-destructor"
 extends = "base-destructor"
+
+[params]
+namespaces = ["vigine"]

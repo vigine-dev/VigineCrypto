@@ -1,0 +1,2 @@
+id      = "module-code-runs-only-through-its-interfaces"
+extends = "module-code-runs-only-through-its-interfaces"
