@@ -5,9 +5,10 @@ message  = "Code runs outside its unit's interfaces"
 guidance = "Reach it through what the unit offers, or move it behind an interface; do no work at load"
 
 [params]
-# Every module and every library that is not business logic. A unit is a
-# build target; a module is one built with the passport.
-applies-to-role      = "other"
+# Every module whose main flow is not the engine, and every library. A
+# unit is a build target; a module is one built with the passport, and
+# its passport file names the main flow.
+applies-to-main-flow = "other"
 subject              = ["target:*"]
 
 # What a unit offers: what it declares in a public include directory
@@ -28,4 +29,3 @@ report-crossing  = "true"
 
 exempt-subject = ["glm::*", "std::*", "toml::*", "nlohmann::*"]
 allowed-in     = ["**/test/**", "**/external/*/external/**"]
-business-logic-units = []

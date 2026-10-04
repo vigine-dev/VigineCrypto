@@ -4,8 +4,3 @@ severity = "warning"
 message  = "An I-name promises a pure interface"
 
 [params]
-# Scope by module role, not by folder, once the module passport carries a role
-# (business logic or not): the checker must read the role of the module that owns
-# each file and apply this rule only where it matches. Until that fact exists the
-# project's own rule file narrows the scope by folder.
-applies-to-role = "other"
