@@ -26,6 +26,16 @@ export PATH="/c/Strawberry/perl/bin:$PATH"   # Git-Bash
 # or open a "x64 Native Tools Command Prompt" with Strawberry Perl on PATH
 ```
 
+### A system OpenSSL instead
+
+Where Perl cannot be made whole -- a container whose distribution splits Perl
+into modules it did not install -- but the system ships OpenSSL 3.5 with its
+headers, link that one and build no OpenSSL at all:
+
+```sh
+cmake -S . -B build -DVIGINECRYPTO_SYSTEM_OPENSSL=ON
+```
+
 ## Build
 
 ```sh

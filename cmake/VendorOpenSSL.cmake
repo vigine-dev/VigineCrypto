@@ -11,6 +11,20 @@ include(ProcessorCount)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+# A system that ships the same OpenSSL line can lend its own instead: a
+# container whose Perl is too thin to run Configure still has libcrypto.
+option(VIGINECRYPTO_SYSTEM_OPENSSL "Link the system's OpenSSL 3.5 instead of building the pinned one" OFF)
+if(VIGINECRYPTO_SYSTEM_OPENSSL)
+    find_package(OpenSSL 3.5 REQUIRED COMPONENTS Crypto SSL)
+    add_library(vigine_openssl_crypto INTERFACE)
+    target_link_libraries(vigine_openssl_crypto INTERFACE OpenSSL::Crypto Threads::Threads)
+    add_library(vigine::openssl::crypto ALIAS vigine_openssl_crypto)
+    add_library(vigine_openssl_ssl INTERFACE)
+    target_link_libraries(vigine_openssl_ssl INTERFACE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+    add_library(vigine::openssl::ssl ALIAS vigine_openssl_ssl)
+    return()
+endif()
+
 set(_openssl_src ${VIGINECRYPTO_ROOT_DIR}/external/openssl)
 set(_openssl_prefix ${CMAKE_BINARY_DIR}/external/openssl)
 set(_openssl_install ${_openssl_prefix}/install)

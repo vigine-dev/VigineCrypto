@@ -31,6 +31,8 @@ file(GLOB VIGINECRYPTO_HEADERS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/inc
 
 add_library(VigineCrypto STATIC ${VIGINECRYPTO_SOURCES} ${VIGINECRYPTO_HEADERS})
 add_library(VigineCrypto::VigineCrypto ALIAS VigineCrypto)
+# The engine's kernel is a shared library that links the facade and BLAKE3 in.
+set_target_properties(VigineCrypto blake3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(VigineCrypto
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
