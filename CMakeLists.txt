@@ -46,7 +46,16 @@ target_link_libraries(VigineCrypto PRIVATE vigine::openssl::ssl blake3)
 # --- tests ---------------------------------------------------------------
 if(VIGINECRYPTO_BUILD_TESTS)
     set(gtest_force_shared_crt ON CACHE BOOL "Use shared CRT for GoogleTest" FORCE)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/googletest ${CMAKE_BINARY_DIR}/googletest EXCLUDE_FROM_ALL)
+    # Its headers count as a system's, and clang 23 warns about its own char8_t printing while it
+    # builds itself with warnings as errors.
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/googletest ${CMAKE_BINARY_DIR}/googletest EXCLUDE_FROM_ALL SYSTEM)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        foreach(googleTarget gtest gtest_main gmock gmock_main)
+            if(TARGET ${googleTarget})
+                target_compile_options(${googleTarget} PRIVATE -Wno-character-conversion)
+            endif()
+        endforeach()
+    endif()
     enable_testing()
     file(GLOB VIGINECRYPTO_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/*_test.cpp)
     add_executable(viginecrypto-test ${VIGINECRYPTO_TEST_SOURCES})
