@@ -59,8 +59,8 @@ endif()
 # whole project. On Windows the env wrapper stays empty -- the VC build
 # already drives `cl` directly and does not consult `$CC`.
 if(WIN32)
-    set(_openssl_crypto_lib ${_openssl_install}/lib/libcrypto.lib)
-    set(_openssl_ssl_lib ${_openssl_install}/lib/libssl.lib)
+    set(_openssl_crypto_name libcrypto.lib)
+    set(_openssl_ssl_name libssl.lib)
     set(_openssl_build_cmd nmake)
     set(_openssl_install_cmd nmake install_dev)
     # libcrypto (CAPI engine, winstore store) and libssl reference Windows
@@ -68,13 +68,15 @@ if(WIN32)
     set(_openssl_syslibs ws2_32 crypt32 advapi32 user32 gdi32 bcrypt)
     set(_openssl_toolchain_env "")
 else()
-    set(_openssl_crypto_lib ${_openssl_install}/lib/libcrypto.a)
-    set(_openssl_ssl_lib ${_openssl_install}/lib/libssl.a)
+    set(_openssl_crypto_name libcrypto.a)
+    set(_openssl_ssl_name libssl.a)
     set(_openssl_build_cmd make -j${_openssl_jobs} build_libs)
     set(_openssl_install_cmd make install_dev)
     set(_openssl_syslibs "")
     set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}")
 endif()
+set(_openssl_crypto_lib ${_openssl_install}/lib/${_openssl_crypto_name})
+set(_openssl_ssl_lib ${_openssl_install}/lib/${_openssl_ssl_name})
 
 # Out-of-source build keeps the submodule working tree clean -- but OpenSSL
 # 3.5.x's out-of-tree build is broken on Windows: Configure mkpath's the
@@ -108,6 +110,46 @@ else()
     set(_openssl_extra_conf "")
 endif()
 
+# One built OpenSSL per machine: every build tree with the same OpenSSL commit, Configure target,
+# options and compiler links the copy the first of them published, and builds none of its own.
+# An empty VIGINECRYPTO_OPENSSL_CACHE turns the sharing off.
+if(DEFINED ENV{VIGINECRYPTO_OPENSSL_CACHE})
+    set(_openssl_cache_default $ENV{VIGINECRYPTO_OPENSSL_CACHE})
+elseif(WIN32)
+    file(TO_CMAKE_PATH "$ENV{LOCALAPPDATA}/vigine/openssl" _openssl_cache_default)
+else()
+    set(_openssl_cache_default "$ENV{HOME}/.cache/vigine/openssl")
+endif()
+set(VIGINECRYPTO_OPENSSL_CACHE "${_openssl_cache_default}" CACHE PATH
+    "Where the built OpenSSL is shared between build trees; empty builds it in every tree")
+
+set(_openssl_cached "")
+if(VIGINECRYPTO_OPENSSL_CACHE)
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${_openssl_src} rev-parse HEAD
+            OUTPUT_VARIABLE _openssl_commit OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _openssl_commit_result ERROR_QUIET)
+        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${_openssl_src} status --porcelain --untracked-files=no
+            OUTPUT_VARIABLE _openssl_dirty OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    endif()
+    # A source with edits of its own is no commit's: it is built in the tree. On Windows nmake drives
+    # the cl of the VC shell whatever CMake compiles with, so its toolset is in the key too.
+    if(_openssl_commit_result EQUAL 0 AND _openssl_commit AND NOT _openssl_dirty)
+        string(SHA256 _openssl_key "1|${_openssl_commit}|${_openssl_target}|${_openssl_extra_conf}|${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_C_COMPILER}|${MSVC_VERSION}|$ENV{VCToolsVersion}")
+        string(SUBSTRING ${_openssl_key} 0 20 _openssl_key)
+        set(_openssl_cached ${VIGINECRYPTO_OPENSSL_CACHE}/${_openssl_key})
+    endif()
+endif()
+
+if(_openssl_cached AND EXISTS ${_openssl_cached}/lib/${_openssl_crypto_name}
+   AND EXISTS ${_openssl_cached}/lib/${_openssl_ssl_name})
+    message(STATUS "VigineCrypto: OpenSSL from ${_openssl_cached}")
+    set(_openssl_install ${_openssl_cached})
+    set(_openssl_crypto_lib ${_openssl_install}/lib/${_openssl_crypto_name})
+    set(_openssl_ssl_lib ${_openssl_install}/lib/${_openssl_ssl_name})
+    add_custom_target(openssl_external)
+else()
 ExternalProject_Add(openssl_external
     SOURCE_DIR ${_openssl_source_dir}
     PREFIX ${_openssl_prefix}
@@ -136,6 +178,14 @@ ExternalProject_Add(openssl_external
     LOG_BUILD 1
     LOG_INSTALL 1
 )
+if(_openssl_cached)
+    ExternalProject_Add_Step(openssl_external publish
+        COMMAND ${CMAKE_COMMAND} -DFROM=${_openssl_install} -DTO=${_openssl_cached}
+                -P ${CMAKE_CURRENT_LIST_DIR}/PublishOpenSSL.cmake
+        DEPENDEES install
+        COMMENT "Sharing the built OpenSSL as ${_openssl_cached}")
+endif()
+endif()
 
 file(MAKE_DIRECTORY ${_openssl_install}/include)
 
