@@ -160,4 +160,103 @@ std::optional<std::vector<std::byte>> open(const AesGcmKey &key,
     return plaintext;
 }
 
+struct AesGcmCipher::Contexts
+{
+    CipherCtxPtr sealing{EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free};
+    CipherCtxPtr opening{EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free};
+};
+
+namespace
+{
+
+// The key goes into the context once; every message after sets its nonce alone.
+void keyContext(EVP_CIPHER_CTX *context, bool sealing,
+                std::span<const std::byte, kAesGcmKeySize> key)
+{
+    const auto init = sealing ? &EVP_EncryptInit_ex : &EVP_DecryptInit_ex;
+    if (context == nullptr || init(context, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) != 1 ||
+        EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(kAesGcmNonceSize),
+                            nullptr) != 1 ||
+        init(context, nullptr, nullptr, reinterpret_cast<const unsigned char *>(key.data()),
+             nullptr) != 1)
+        fatal("crypto.aesgcm.cipher_init");
+}
+
+const unsigned char *bytesOf(std::span<const std::byte> bytes)
+{
+    return reinterpret_cast<const unsigned char *>(bytes.data());
+}
+
+unsigned char *writableBytesOf(std::span<std::byte> bytes)
+{
+    return reinterpret_cast<unsigned char *>(bytes.data());
+}
+
+} // namespace
+
+AesGcmCipher::AesGcmCipher(std::span<const std::byte, kAesGcmKeySize> key)
+    : _contexts(std::make_unique<Contexts>())
+{
+    keyContext(_contexts->sealing.get(), true, key);
+    keyContext(_contexts->opening.get(), false, key);
+}
+
+AesGcmCipher::~AesGcmCipher()                                        = default;
+AesGcmCipher::AesGcmCipher(AesGcmCipher &&other) noexcept            = default;
+AesGcmCipher &AesGcmCipher::operator=(AesGcmCipher &&other) noexcept = default;
+
+void AesGcmCipher::seal(std::span<const std::byte, kAesGcmNonceSize> nonce,
+                        std::span<const std::byte> plaintext, std::span<const std::byte> aad,
+                        std::span<std::byte> out, std::span<std::byte, kAesGcmTagSize> tag)
+{
+    EVP_CIPHER_CTX *context = _contexts->sealing.get();
+    if (out.size() != plaintext.size() ||
+        EVP_EncryptInit_ex(context, nullptr, nullptr, nullptr, bytesOf(nonce)) != 1)
+        fatal("crypto.aesgcm.cipher_seal_nonce");
+    int counted = 0;
+    if (!aad.empty() && EVP_EncryptUpdate(context, nullptr, &counted, bytesOf(aad),
+                                          static_cast<int>(aad.size())) != 1)
+        fatal("crypto.aesgcm.cipher_seal_aad");
+    int processed = 0;
+    if (!plaintext.empty() &&
+        EVP_EncryptUpdate(context, writableBytesOf(out), &processed, bytesOf(plaintext),
+                          static_cast<int>(plaintext.size())) != 1)
+        fatal("crypto.aesgcm.cipher_seal_update");
+    int finalLength = 0;
+    if (EVP_EncryptFinal_ex(context, writableBytesOf(out) + processed, &finalLength) != 1 ||
+        EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_GCM_GET_TAG, static_cast<int>(kAesGcmTagSize),
+                            writableBytesOf(tag)) != 1)
+        fatal("crypto.aesgcm.cipher_seal_final");
+}
+
+bool AesGcmCipher::open(std::span<const std::byte, kAesGcmNonceSize> nonce,
+                        std::span<const std::byte> ciphertext,
+                        std::span<const std::byte, kAesGcmTagSize> tag,
+                        std::span<const std::byte> aad, std::span<std::byte> out)
+{
+    EVP_CIPHER_CTX *context = _contexts->opening.get();
+    if (out.size() != ciphertext.size() ||
+        EVP_DecryptInit_ex(context, nullptr, nullptr, nullptr, bytesOf(nonce)) != 1)
+        fatal("crypto.aesgcm.cipher_open_nonce");
+    int counted = 0;
+    if (!aad.empty() && EVP_DecryptUpdate(context, nullptr, &counted, bytesOf(aad),
+                                          static_cast<int>(aad.size())) != 1)
+        fatal("crypto.aesgcm.cipher_open_aad");
+    int processed = 0;
+    if (!ciphertext.empty() &&
+        EVP_DecryptUpdate(context, writableBytesOf(out), &processed, bytesOf(ciphertext),
+                          static_cast<int>(ciphertext.size())) != 1)
+        fatal("crypto.aesgcm.cipher_open_update");
+    std::array<std::byte, kAesGcmTagSize> expected{};
+    std::copy(tag.begin(), tag.end(), expected.begin());
+    int finalLength = 0;
+    const bool authentic =
+        EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_GCM_SET_TAG, static_cast<int>(kAesGcmTagSize),
+                            expected.data()) == 1 &&
+        EVP_DecryptFinal_ex(context, writableBytesOf(out) + processed, &finalLength) == 1;
+    if (!authentic)
+        OPENSSL_cleanse(out.data(), out.size());
+    return authentic;
+}
+
 } // namespace vigine::crypto
