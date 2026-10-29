@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <gtest/gtest.h>
 #include <optional>
 #include <span>
@@ -106,4 +107,72 @@ TEST(AesGcm, AssociatedDataOnlyEmptyPlaintext)
     EXPECT_TRUE(opened->empty());
     EXPECT_FALSE(vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, bytesOf("other"))
                      .has_value());
+}
+
+namespace
+{
+
+std::array<std::byte, vigine::crypto::kAesGcmKeySize> sampleKey()
+{
+    std::array<std::byte, vigine::crypto::kAesGcmKeySize> key{};
+    for (std::size_t index = 0; index < key.size(); ++index)
+        key[index] = static_cast<std::byte>(0xA0 + index);
+    return key;
+}
+
+std::array<std::byte, vigine::crypto::kAesGcmNonceSize> nonceNumber(std::uint64_t number)
+{
+    std::array<std::byte, vigine::crypto::kAesGcmNonceSize> nonce{};
+    for (std::size_t index = 0; index < 8; ++index)
+        nonce[4 + index] = static_cast<std::byte>(number >> (8 * index));
+    return nonce;
+}
+
+} // namespace
+
+// The kept cipher seals what the one-shot seal does, message after message, each with its nonce.
+TEST(AesGcm, AKeptCipherSealsWhatTheOneShotSealDoesForEveryNonce)
+{
+    const auto keyBytes = sampleKey();
+    const vigine::crypto::AesGcmKey key{keyBytes};
+    vigine::crypto::AesGcmCipher cipher{keyBytes};
+    const auto plaintext = bytesOf("one frame of a tunnel, sealed in place");
+    const auto aad       = bytesOf("length");
+    for (std::uint64_t number = 0; number < 1000; ++number)
+    {
+        const auto nonce = nonceNumber(number);
+        std::vector<std::byte> out(plaintext.size());
+        std::array<std::byte, vigine::crypto::kAesGcmTagSize> tag{};
+        cipher.seal(nonce, plaintext, aad, out, tag);
+        const auto oneShot = vigine::crypto::seal(key, nonce, plaintext, aad);
+        ASSERT_EQ(out, oneShot.ciphertext) << "message " << number;
+        ASSERT_EQ(tag, oneShot.tag) << "message " << number;
+    }
+}
+
+// Sealed and opened in the same buffer; a tag that does not hold leaves nothing readable.
+TEST(AesGcm, AKeptCipherOpensInPlaceAndRefusesATagThatDoesNotHold)
+{
+    vigine::crypto::AesGcmCipher sender{sampleKey()};
+    vigine::crypto::AesGcmCipher receiver{sampleKey()};
+    const auto plaintext          = bytesOf("sealed and opened in the same bytes");
+    const auto nonce              = nonceNumber(7);
+    std::vector<std::byte> buffer = plaintext;
+    std::array<std::byte, vigine::crypto::kAesGcmTagSize> tag{};
+    sender.seal(nonce, buffer, {}, buffer, tag);
+    EXPECT_NE(buffer, plaintext);
+    std::vector<std::byte> tampered = buffer;
+
+    ASSERT_TRUE(receiver.open(nonce, buffer, tag, {}, buffer));
+    EXPECT_EQ(buffer, plaintext);
+
+    tampered[0] ^= std::byte{1};
+    EXPECT_FALSE(receiver.open(nonce, tampered, tag, {}, tampered));
+    EXPECT_EQ(tampered, std::vector<std::byte>(tampered.size()))
+        << "what did not hold is wiped, not handed out";
+    std::vector<std::byte> sealed(plaintext.size());
+    sender.seal(nonce, plaintext, {}, sealed, tag);
+    std::vector<std::byte> opened(sealed.size());
+    EXPECT_FALSE(receiver.open(nonceNumber(8), sealed, tag, {}, opened))
+        << "another nonce does not open it";
 }

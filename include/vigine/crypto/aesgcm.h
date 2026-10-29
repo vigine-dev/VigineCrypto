@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -33,6 +34,36 @@ class AesGcmKey
 
   private:
     std::array<std::byte, kAesGcmKeySize> _bytes{};
+};
+
+/* One AES-256-GCM key held in its cipher contexts for as long as the object lives. It seals and
+   opens into the caller's buffers -- the same bytes may be both input and output -- setting only
+   the nonce per message: no allocation and no new context per message, which is what a tunnel
+   needs for every frame. One object serves one thread at a time. */
+class AesGcmCipher
+{
+  public:
+    explicit AesGcmCipher(std::span<const std::byte, kAesGcmKeySize> key);
+    ~AesGcmCipher();
+
+    AesGcmCipher(const AesGcmCipher &)            = delete;
+    AesGcmCipher &operator=(const AesGcmCipher &) = delete;
+    AesGcmCipher(AesGcmCipher &&other) noexcept;
+    AesGcmCipher &operator=(AesGcmCipher &&other) noexcept;
+
+    // `out` is as long as `plaintext`.
+    void seal(std::span<const std::byte, kAesGcmNonceSize> nonce,
+              std::span<const std::byte> plaintext, std::span<const std::byte> aad,
+              std::span<std::byte> out, std::span<std::byte, kAesGcmTagSize> tag);
+    // False, and `out` wiped, when the tag does not hold; `out` is as long as `ciphertext`.
+    [[nodiscard]] bool open(std::span<const std::byte, kAesGcmNonceSize> nonce,
+                            std::span<const std::byte> ciphertext,
+                            std::span<const std::byte, kAesGcmTagSize> tag,
+                            std::span<const std::byte> aad, std::span<std::byte> out);
+
+  private:
+    struct Contexts;
+    std::unique_ptr<Contexts> _contexts;
 };
 
 struct AesGcmSealed
