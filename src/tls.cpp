@@ -1,6 +1,7 @@
 #include "vigine/crypto/tls.h"
 
 #include <openssl/crypto.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
@@ -8,6 +9,13 @@
 #include <openssl/x509v3.h>
 #include <string>
 #include <utility>
+
+#if defined(_WIN32)
+#include <windows.h>
+#include <wincrypt.h>
+#else
+#include <sys/stat.h>
+#endif
 
 namespace vigine::crypto
 {
@@ -17,6 +25,7 @@ struct TlsStream::State
     SSL_CTX *ctx{nullptr};
     SSL *ssl{nullptr};
     bool ok{false};
+    std::string reason;
 
     State()                         = default;
     State(const State &)            = delete;
@@ -42,6 +51,101 @@ namespace
 int nativeFd(std::uintptr_t handle) noexcept
 {
     return static_cast<int>(static_cast<std::intptr_t>(handle));
+}
+
+// No path comes from the OpenSSL build: its OPENSSLDIR names the folder it was configured in.
+std::size_t countStoreCerts(X509_STORE *store)
+{
+    STACK_OF(X509_OBJECT) *objects = X509_STORE_get0_objects(store);
+    return static_cast<std::size_t>(sk_X509_OBJECT_num(objects));
+}
+
+#if defined(_WIN32)
+std::size_t loadPlatformRoots(X509_STORE *store)
+{
+    HCERTSTORE system = CertOpenSystemStoreA(0, "ROOT");
+    if (system == nullptr)
+        return 0;
+    std::size_t added = 0;
+    for (PCCERT_CONTEXT context = CertEnumCertificatesInStore(system, nullptr); context != nullptr;
+         context = CertEnumCertificatesInStore(system, context))
+    {
+        const unsigned char *der = context->pbCertEncoded;
+        X509 *certificate        = d2i_X509(nullptr, &der, static_cast<long>(context->cbCertEncoded));
+        if (certificate == nullptr)
+            continue;
+        if (X509_STORE_add_cert(store, certificate) == 1)
+            ++added;
+        X509_free(certificate);
+    }
+    CertCloseStore(system, 0);
+    return added;
+}
+#else
+std::size_t loadPlatformRoots(X509_STORE *store)
+{
+    static const char *const bundles[] = {
+        "/etc/ssl/cert.pem", // macOS keeps this current from the keychain's anchors
+        "/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",   // Fedora, RHEL
+    };
+    for (const char *bundle : bundles)
+    {
+        struct stat info{};
+        if (::stat(bundle, &info) != 0)
+            continue;
+        if (X509_STORE_load_file(store, bundle) == 1 && countStoreCerts(store) > 0)
+            return countStoreCerts(store);
+    }
+    return 0;
+}
+#endif
+
+// Fills the store from the override file when given, else from the platform's roots.
+bool loadTrust(X509_STORE *store, std::string_view trustedRootsFile, std::string &reason)
+{
+    if (!trustedRootsFile.empty())
+    {
+        const std::string path(trustedRootsFile);
+        if (X509_STORE_load_file(store, path.c_str()) != 1 || countStoreCerts(store) == 0)
+        {
+            reason = "no certificate could be read from the trusted roots file " + path;
+            return false;
+        }
+        return true;
+    }
+    if (loadPlatformRoots(store) == 0)
+    {
+        reason = "no system root certificates could be loaded";
+        return false;
+    }
+    return true;
+}
+
+bool addPinnedCert(X509_STORE *store, std::string_view pem)
+{
+    BIO *bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
+    X509 *trusted = (bio != nullptr) ? PEM_read_bio_X509(bio, nullptr, nullptr, nullptr) : nullptr;
+    if (trusted != nullptr)
+    {
+        X509_STORE_add_cert(store, trusted);
+        X509_free(trusted);
+    }
+    if (bio != nullptr)
+        BIO_free(bio);
+    return trusted != nullptr;
+}
+
+std::string handshakeFailure(SSL *ssl)
+{
+    const long verify = SSL_get_verify_result(ssl);
+    if (verify != X509_V_OK)
+        return std::string("certificate verification failed: ") +
+               X509_verify_cert_error_string(verify);
+    const unsigned long code = ERR_peek_last_error();
+    if (code != 0)
+        return std::string("TLS handshake failed: ") + ERR_error_string(code, nullptr);
+    return "TLS handshake failed";
 }
 
 void describeCertificate(X509 *certificate, EVP_PKEY *pkey, const std::string &host)
@@ -135,7 +239,8 @@ TlsStream &TlsStream::operator=(TlsStream &&) noexcept = default;
 
 TlsStream TlsStream::connectClient(std::uintptr_t connectedSocket,
                                    std::string_view expectedHostname,
-                                   std::string_view trustedCertPem)
+                                   std::string_view trustedCertPem,
+                                   std::string_view trustedRootsFile)
 {
     auto state = std::make_unique<State>();
 
@@ -152,22 +257,16 @@ TlsStream TlsStream::connectClient(std::uintptr_t connectedSocket,
     if (SSL_CTX_set_min_proto_version(state->ctx, TLS1_3_VERSION) != 1)
         return TlsStream(std::move(state));
 
+    X509_STORE *store = SSL_CTX_get_cert_store(state->ctx);
     if (!trustedCertPem.empty())
     {
-        BIO *bio = BIO_new_mem_buf(trustedCertPem.data(), static_cast<int>(trustedCertPem.size()));
-        X509 *trusted =
-            (bio != nullptr) ? PEM_read_bio_X509(bio, nullptr, nullptr, nullptr) : nullptr;
-        if (trusted != nullptr)
-        {
-            X509_STORE_add_cert(SSL_CTX_get_cert_store(state->ctx), trusted);
-            X509_free(trusted);
-        }
-        if (bio != nullptr)
-            BIO_free(bio);
         // A pin was requested but did not parse -- do not silently trust nothing.
-        if (trusted == nullptr)
+        if (!addPinnedCert(store, trustedCertPem))
+        {
+            state->reason = "the pinned certificate could not be parsed";
             return TlsStream(std::move(state));
-    } else if (SSL_CTX_set_default_verify_paths(state->ctx) != 1)
+        }
+    } else if (!loadTrust(store, trustedRootsFile, state->reason))
     {
         return TlsStream(std::move(state));
     }
@@ -185,8 +284,21 @@ TlsStream TlsStream::connectClient(std::uintptr_t connectedSocket,
     if (SSL_set1_host(state->ssl, host.c_str()) != 1)
         return TlsStream(std::move(state));
 
+    ERR_clear_error();
     state->ok = (SSL_connect(state->ssl) == 1);
+    if (!state->ok)
+        state->reason = handshakeFailure(state->ssl);
     return TlsStream(std::move(state));
+}
+
+std::size_t TlsStream::systemRootCount()
+{
+    X509_STORE *store = X509_STORE_new();
+    if (store == nullptr)
+        return 0;
+    const std::size_t count = loadPlatformRoots(store);
+    X509_STORE_free(store);
+    return count;
 }
 
 TlsStream TlsStream::acceptServer(std::uintptr_t connectedSocket, std::string_view certPem,
@@ -237,6 +349,12 @@ TlsStream TlsStream::acceptServer(std::uintptr_t connectedSocket, std::string_vi
 }
 
 bool TlsStream::ok() const noexcept { return _state && _state->ok; }
+
+const std::string &TlsStream::failureReason() const noexcept
+{
+    static const std::string none;
+    return _state ? _state->reason : none;
+}
 
 bool TlsStream::writeAll(std::span<const std::byte> data) noexcept
 {
