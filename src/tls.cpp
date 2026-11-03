@@ -277,7 +277,9 @@ TlsStream TlsStream::connectClient(std::uintptr_t connectedSocket,
         return TlsStream(std::move(state));
 
     SSL_set_fd(state->ssl, nativeFd(connectedSocket));
-    SSL_set_tlsext_host_name(state->ssl, host.c_str()); // SNI
+    // Without the SNI name the server may present another vhost's certificate.
+    if (SSL_set_tlsext_host_name(state->ssl, host.c_str()) != 1)
+        return TlsStream(std::move(state));
     SSL_set_hostflags(state->ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
     // Arming hostname verification MUST succeed; otherwise the peer certificate
     // would be chain-checked but never matched against the expected hostname.
