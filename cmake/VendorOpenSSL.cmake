@@ -75,6 +75,14 @@ else()
     set(_openssl_syslibs "")
     set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}")
 endif()
+# OPENSSLDIR is baked into libcrypto. It must not be a folder of any build tree (it was the
+# install/ssl of whichever tree published the cached copy, which is gone elsewhere). The
+# engine's TLS client loads its roots itself; this is only OpenSSL's own default location.
+if(WIN32)
+    set(_openssl_dir "C:/Program Files/Common Files/SSL")
+else()
+    set(_openssl_dir /etc/ssl)
+endif()
 set(_openssl_crypto_lib ${_openssl_install}/lib/${_openssl_crypto_name})
 set(_openssl_ssl_lib ${_openssl_install}/lib/${_openssl_ssl_name})
 
@@ -136,7 +144,7 @@ if(VIGINECRYPTO_OPENSSL_CACHE)
     # A source with edits of its own is no commit's: it is built in the tree. On Windows nmake drives
     # the cl of the VC shell whatever CMake compiles with, so its toolset is in the key too.
     if(_openssl_commit_result EQUAL 0 AND _openssl_commit AND NOT _openssl_dirty)
-        string(SHA256 _openssl_key "1|${_openssl_commit}|${_openssl_target}|${_openssl_extra_conf}|${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_C_COMPILER}|${MSVC_VERSION}|$ENV{VCToolsVersion}")
+        string(SHA256 _openssl_key "2|${_openssl_commit}|${_openssl_target}|${_openssl_extra_conf}|${_openssl_dir}|${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_C_COMPILER}|${MSVC_VERSION}|$ENV{VCToolsVersion}")
         string(SUBSTRING ${_openssl_key} 0 20 _openssl_key)
         set(_openssl_cached ${VIGINECRYPTO_OPENSSL_CACHE}/${_openssl_key})
     endif()
@@ -170,7 +178,7 @@ ExternalProject_Add(openssl_external
     CONFIGURE_COMMAND ${_openssl_toolchain_env} perl ${_openssl_configure_dir}/Configure ${_openssl_target}
         no-shared no-apps no-tests no-docs ${_openssl_extra_conf}
         --prefix=${_openssl_install} --libdir=lib
-        --openssldir=${_openssl_install}/ssl
+        --openssldir=${_openssl_dir}
     BUILD_COMMAND ${_openssl_toolchain_env} ${_openssl_build_cmd}
     INSTALL_COMMAND ${_openssl_toolchain_env} ${_openssl_install_cmd}
     BUILD_BYPRODUCTS ${_openssl_crypto_lib} ${_openssl_ssl_lib}

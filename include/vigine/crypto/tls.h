@@ -29,10 +29,18 @@ class TlsStream
 {
   public:
     // Client handshake. If trustedCertPem is non-empty it is the sole trusted
-    // root (self-signed / pinning); otherwise the system trust store is used.
+    // root (self-signed / pinning); else if trustedRootsFile (a PEM file of
+    // roots) is non-empty it is the sole trust; otherwise the system roots are
+    // used (macOS /etc/ssl/cert.pem, the Linux distro bundle, the Windows ROOT
+    // store). When no root can be loaded or the handshake fails, ok() is false
+    // and failureReason() says why.
     [[nodiscard]] static TlsStream connectClient(std::uintptr_t connectedSocket,
                                                  std::string_view expectedHostname,
-                                                 std::string_view trustedCertPem = {});
+                                                 std::string_view trustedCertPem = {},
+                                                 std::string_view trustedRootsFile = {});
+
+    // How many system root certificates this machine offers (0 when none load).
+    [[nodiscard]] static std::size_t systemRootCount();
 
     // Server handshake with a PEM certificate + private key.
     [[nodiscard]] static TlsStream acceptServer(std::uintptr_t connectedSocket,
@@ -46,6 +54,9 @@ class TlsStream
 
     // True when the handshake succeeded.
     [[nodiscard]] bool ok() const noexcept;
+
+    // Why the connect failed; empty when it succeeded.
+    [[nodiscard]] const std::string &failureReason() const noexcept;
 
     [[nodiscard]] bool writeAll(std::span<const std::byte> data) noexcept;
     [[nodiscard]] bool readExact(std::span<std::byte> data) noexcept;
