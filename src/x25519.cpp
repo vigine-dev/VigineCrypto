@@ -87,6 +87,7 @@ X25519KeyPair generateX25519KeyPair()
 
     const std::array<std::byte, kX25519PublicKeySize> publicBytes = publicKeyOf(pkey.get());
     std::array<std::byte, kX25519PrivateKeySize> privateBytes{};
+    const detail::SecretWipe privateWipe{privateBytes};
     std::size_t privateLen = privateBytes.size();
     if (EVP_PKEY_get_raw_private_key(
             pkey.get(), reinterpret_cast<unsigned char *>(privateBytes.data()), &privateLen) != 1 ||
@@ -96,7 +97,6 @@ X25519KeyPair generateX25519KeyPair()
     X25519KeyPair pair{
         X25519PublicKey{std::span<const std::byte, kX25519PublicKeySize>{publicBytes}},
         X25519SecretKey{std::span<const std::byte, kX25519PrivateKeySize>{privateBytes}}};
-    OPENSSL_cleanse(privateBytes.data(), privateBytes.size());
     return pair;
 }
 
@@ -133,6 +133,7 @@ x25519SharedSecret(const X25519SecretKey &secretKey, const X25519PublicKey &peer
             return;
 
         std::array<std::byte, kX25519SharedSecretSize> shared{};
+        const detail::SecretWipe sharedWipe{shared};
         std::size_t sharedLen = shared.size();
         // A low-order peer point makes OpenSSL's X25519 derive return 0 (the
         // all-zero shared secret is rejected at the source), so a failure here
@@ -141,8 +142,6 @@ x25519SharedSecret(const X25519SecretKey &secretKey, const X25519PublicKey &peer
             ctx.get(), reinterpret_cast<unsigned char *>(shared.data()), &sharedLen);
         if (derived == 1 && sharedLen == kX25519SharedSecretSize)
             result = shared;
-        else
-            OPENSSL_cleanse(shared.data(), shared.size());
     });
     return result;
 }
