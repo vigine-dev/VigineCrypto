@@ -63,4 +63,7 @@ if(VIGINECRYPTO_BUILD_TESTS)
     set_target_properties(viginecrypto-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
     include(GoogleTest)
     gtest_discover_tests(viginecrypto-test DISCOVERY_TIMEOUT 60 DISCOVERY_MODE PRE_TEST)
+    # The tester's passport of the build (same shape as the Vigine products write): the one test program, where it is and where it runs.
+    file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/tests.passport.json CONTENT
+"{\n  \"product\": \"VigineCrypto\",\n  \"programs\": [\n    {\"name\": \"viginecrypto-test\", \"project\": \"VigineCrypto\", \"program\": \"$<TARGET_FILE:viginecrypto-test>\", \"folder\": \"${CMAKE_BINARY_DIR}\"}\n  ]\n}\n")
 endif()

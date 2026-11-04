@@ -49,6 +49,71 @@ else()
     message(FATAL_ERROR "VendorOpenSSL: no OpenSSL Configure target for this platform")
 endif()
 
+# OpenSSL's own Configure and make know nothing of the platform's system headers and
+# libraries, and the compiler CMake picked (our clang on macOS) may not either. They are
+# found here once, for every platform, and handed to OpenSSL's build; when they cannot
+# be found the configure stops with the reason.
+set(_openssl_sys_env "")
+set(_openssl_sys_flags "")
+set(_openssl_sys_key "")
+if(APPLE)
+    set(_openssl_sdk "")
+    if(CMAKE_OSX_SYSROOT)
+        # An SDK named on purpose is never replaced by another one behind the caller's back.
+        if(NOT IS_DIRECTORY "${CMAKE_OSX_SYSROOT}")
+            message(FATAL_ERROR "VendorOpenSSL: CMAKE_OSX_SYSROOT is \"${CMAKE_OSX_SYSROOT}\", "
+                "which is not a directory, so the macOS SDK headers cannot be found. "
+                "Point it at an existing SDK or leave it empty.")
+        endif()
+        set(_openssl_sdk "${CMAKE_OSX_SYSROOT}")
+    elseif(DEFINED ENV{SDKROOT} AND IS_DIRECTORY "$ENV{SDKROOT}")
+        set(_openssl_sdk "$ENV{SDKROOT}")
+    else()
+        execute_process(COMMAND xcrun --show-sdk-path
+            OUTPUT_VARIABLE _openssl_sdk OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _openssl_sdk_result ERROR_QUIET)
+        if(NOT _openssl_sdk_result EQUAL 0)
+            set(_openssl_sdk "")
+        endif()
+    endif()
+    if(NOT _openssl_sdk OR NOT IS_DIRECTORY "${_openssl_sdk}")
+        message(FATAL_ERROR "VendorOpenSSL: the macOS SDK was not found (CMAKE_OSX_SYSROOT is empty, "
+            "SDKROOT is not a directory and `xcrun --show-sdk-path` gave nothing). "
+            "Install the Xcode command line tools or set SDKROOT.")
+    endif()
+    # The key names the SDK by its real directory, so MacOSX.sdk moving to a new version rebuilds.
+    get_filename_component(_openssl_sdk_real "${_openssl_sdk}" REALPATH)
+    set(_openssl_sys_env "SDKROOT=${_openssl_sdk}")
+    set(_openssl_sys_flags "-isysroot ${_openssl_sdk}")
+    set(_openssl_sys_key "${_openssl_sdk_real}")
+elseif(WIN32)
+    if(NOT DEFINED ENV{INCLUDE} OR "$ENV{INCLUDE}" STREQUAL "" OR NOT DEFINED ENV{LIB} OR "$ENV{LIB}" STREQUAL "")
+        message(FATAL_ERROR "VendorOpenSSL: INCLUDE and LIB are not set, so the Visual Studio "
+            "headers and libraries cannot be found. Configure from a Visual Studio developer "
+            "prompt (vcvars64.bat) so OpenSSL's nmake build can see them.")
+    endif()
+    # INCLUDE and LIB are not passed on the command line: their backslashes and `;` do not survive
+    # the generated configure script. The OpenSSL steps inherit them from the Visual Studio shell.
+    set(_openssl_sys_key "$ENV{INCLUDE}|$ENV{LIB}")
+elseif(UNIX)
+    set(_openssl_sys_dirs "")
+    foreach(_openssl_dir IN LISTS CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES)
+        string(APPEND _openssl_sys_flags " -isystem ${_openssl_dir}")
+        list(APPEND _openssl_sys_dirs "${_openssl_dir}")
+    endforeach()
+    if(CMAKE_SYSROOT)
+        string(PREPEND _openssl_sys_flags "--sysroot=${CMAKE_SYSROOT}")
+    endif()
+    if(NOT CMAKE_SYSROOT AND NOT _openssl_sys_dirs)
+        message(FATAL_ERROR "VendorOpenSSL: the system headers were not found (CMAKE_SYSROOT is "
+            "empty and the compiler reported no implicit include directories). "
+            "Set CMAKE_SYSROOT or install the C library headers.")
+    endif()
+    string(REPLACE ";" "," _openssl_sys_dirs_key "${_openssl_sys_dirs}")
+    set(_openssl_sys_key "${CMAKE_SYSROOT}|${_openssl_sys_dirs_key}")
+endif()
+string(STRIP "${_openssl_sys_flags}" _openssl_sys_flags)
+
 # OpenSSL's Perl/make build resolves its C compiler from `$CC`, falling
 # back to a bare `gcc`/`cc` found on PATH. When that PATH default is not
 # the toolchain CMake selected for the rest of the project, libcrypto is
@@ -56,8 +121,8 @@ endif()
 # references to glibc symbols the final link target never provides (e.g.
 # `__pthread_cond_timedwait64` from a stray time64 redirect). Pin the
 # OpenSSL build to ${CMAKE_C_COMPILER} so a single toolchain compiles the
-# whole project. On Windows the env wrapper stays empty -- the VC build
-# already drives `cl` directly and does not consult `$CC`.
+# whole project. On Windows the VC build drives `cl` directly and does not
+# consult `$CC`, so no wrapper is needed.
 if(WIN32)
     set(_openssl_crypto_name libcrypto.lib)
     set(_openssl_ssl_name libssl.lib)
@@ -73,7 +138,7 @@ else()
     set(_openssl_build_cmd make -j${_openssl_jobs} build_libs)
     set(_openssl_install_cmd make install_dev)
     set(_openssl_syslibs "")
-    set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}")
+    set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}" "CFLAGS=${_openssl_sys_flags}" ${_openssl_sys_env})
 endif()
 # OPENSSLDIR is baked into libcrypto. It must not be a folder of any build tree (it was the
 # install/ssl of whichever tree published the cached copy, which is gone elsewhere). The
@@ -119,7 +184,8 @@ else()
 endif()
 
 # One built OpenSSL per machine: every build tree with the same OpenSSL commit, Configure target,
-# options and compiler links the copy the first of them published, and builds none of its own.
+# options, compiler and system header/library paths links the copy the first of them published,
+# and builds none of its own.
 # An empty VIGINECRYPTO_OPENSSL_CACHE turns the sharing off.
 if(DEFINED ENV{VIGINECRYPTO_OPENSSL_CACHE})
     set(_openssl_cache_default $ENV{VIGINECRYPTO_OPENSSL_CACHE})
@@ -144,7 +210,7 @@ if(VIGINECRYPTO_OPENSSL_CACHE)
     # A source with edits of its own is no commit's: it is built in the tree. On Windows nmake drives
     # the cl of the VC shell whatever CMake compiles with, so its toolset is in the key too.
     if(_openssl_commit_result EQUAL 0 AND _openssl_commit AND NOT _openssl_dirty)
-        string(SHA256 _openssl_key "2|${_openssl_commit}|${_openssl_target}|${_openssl_extra_conf}|${_openssl_dir}|${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_C_COMPILER}|${MSVC_VERSION}|$ENV{VCToolsVersion}")
+        string(SHA256 _openssl_key "2|${_openssl_commit}|${_openssl_target}|${_openssl_extra_conf}|${_openssl_dir}|${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_C_COMPILER}|${MSVC_VERSION}|$ENV{VCToolsVersion}|${_openssl_sys_key}|${_openssl_sys_flags}")
         string(SUBSTRING ${_openssl_key} 0 20 _openssl_key)
         set(_openssl_cached ${VIGINECRYPTO_OPENSSL_CACHE}/${_openssl_key})
     endif()
