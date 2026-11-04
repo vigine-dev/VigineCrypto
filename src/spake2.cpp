@@ -3,6 +3,7 @@
 #include "vigine/crypto/hkdf.h"
 #include "vigine/crypto/spake2.h"
 
+#include <algorithm>
 #include <cstring>
 #include <openssl/bn.h>
 #include <openssl/crypto.h>
@@ -176,7 +177,10 @@ std::optional<Spake2> Spake2::beginWithScalar(Spake2Role role, std::span<const s
     const BnCtxPtr ctx{BN_CTX_new(), BN_CTX_free};
     if (!ctx)
         detail::fatal("spake2");
-    const BnPtr w      = scalarFrom(group.get(), password, true);
+    // A zero password scalar makes w*M the identity: a plain ECDH with no authentication.
+    // spake2PasswordScalar (SHA-256 mod the order) gives zero only for a digest of 0 or n,
+    // out of reach in practice, but a caller may pass any bytes, so zero is refused here.
+    const BnPtr w      = scalarFrom(group.get(), password, false);
     const BnPtr secret = scalarFrom(group.get(), scalar, false);
     if (!w || !secret || password.size() != kSpake2ScalarSize)
         return std::nullopt;
@@ -201,10 +205,22 @@ std::optional<Spake2> Spake2::beginWithScalar(Spake2Role role, std::span<const s
     return Spake2{std::move(state)};
 }
 
-std::span<const std::byte, kSpake2ShareSize> Spake2::share() const { return _state->share; }
+std::span<const std::byte, kSpake2ShareSize> Spake2::share() const
+{
+    static const std::array<std::byte, kSpake2ShareSize> kEmpty{};
+    return _state ? std::span<const std::byte, kSpake2ShareSize>{_state->share}
+                  : std::span<const std::byte, kSpake2ShareSize>{kEmpty};
+}
 
 std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare) const
 {
+    // A moved-from exchange holds nothing to finish.
+    if (!_state)
+        return std::nullopt;
+    // A share equal to our own is a reflection of it.
+    if (peerShare.size() == _state->share.size() &&
+        std::equal(peerShare.begin(), peerShare.end(), _state->share.begin()))
+        return std::nullopt;
     const GroupPtr group = p256();
     const BnCtxPtr ctx{BN_CTX_new(), BN_CTX_free};
     if (!ctx)
@@ -212,7 +228,7 @@ std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare
     const PointPtr peer = decodePoint(group.get(), peerShare, ctx.get());
     if (!peer)
         return std::nullopt;
-    const BnPtr w      = scalarFrom(group.get(), _state->password, true);
+    const BnPtr w      = scalarFrom(group.get(), _state->password, false);
     const BnPtr secret = scalarFrom(group.get(), _state->scalar, false);
     if (!w || !secret)
         return std::nullopt;
