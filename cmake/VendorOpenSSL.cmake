@@ -92,10 +92,8 @@ elseif(WIN32)
             "headers and libraries cannot be found. Configure from a Visual Studio developer "
             "prompt (vcvars64.bat) so OpenSSL's nmake build can see them.")
     endif()
-    # `;` would split the env arguments; the generator expression keeps each value whole.
-    string(REPLACE ";" "$<SEMICOLON>" _openssl_win_include "$ENV{INCLUDE}")
-    string(REPLACE ";" "$<SEMICOLON>" _openssl_win_lib "$ENV{LIB}")
-    set(_openssl_sys_env "INCLUDE=${_openssl_win_include}" "LIB=${_openssl_win_lib}")
+    # INCLUDE and LIB are not passed on the command line: their backslashes and `;` do not survive
+    # the generated configure script. The OpenSSL steps inherit them from the Visual Studio shell.
     set(_openssl_sys_key "$ENV{INCLUDE}|$ENV{LIB}")
 elseif(UNIX)
     set(_openssl_sys_dirs "")
@@ -124,7 +122,7 @@ string(STRIP "${_openssl_sys_flags}" _openssl_sys_flags)
 # `__pthread_cond_timedwait64` from a stray time64 redirect). Pin the
 # OpenSSL build to ${CMAKE_C_COMPILER} so a single toolchain compiles the
 # whole project. On Windows the VC build drives `cl` directly and does not
-# consult `$CC`; there the wrapper carries only INCLUDE and LIB.
+# consult `$CC`, so no wrapper is needed.
 if(WIN32)
     set(_openssl_crypto_name libcrypto.lib)
     set(_openssl_ssl_name libssl.lib)
@@ -133,7 +131,7 @@ if(WIN32)
     # libcrypto (CAPI engine, winstore store) and libssl reference Windows
     # system import libraries not bundled into the static .lib.
     set(_openssl_syslibs ws2_32 crypt32 advapi32 user32 gdi32 bcrypt)
-    set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env ${_openssl_sys_env})
+    set(_openssl_toolchain_env "")
 else()
     set(_openssl_crypto_name libcrypto.a)
     set(_openssl_ssl_name libssl.a)
