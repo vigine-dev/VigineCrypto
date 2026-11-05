@@ -142,6 +142,31 @@ TEST(Spake2, BytesThatAreNoPointOfTheCurveAreRefused)
         << "the point at infinity was taken";
 }
 
+TEST(Spake2, AZeroPasswordScalarIsRefused)
+{
+    const std::vector<std::byte> zero(kSpake2ScalarSize, std::byte{0});
+    EXPECT_FALSE(Spake2::begin(Spake2Role::A, zero, bytesOf("map"), bytesOf("agent")).has_value());
+}
+
+TEST(Spake2, AReflectedShareIsRefused)
+{
+    const auto code  = spake2PasswordScalar("vigine.link.pairing", "734-218");
+    const auto sideA = Spake2::begin(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
+    ASSERT_TRUE(sideA);
+    EXPECT_FALSE(sideA->finish(sideA->share()).has_value());
+}
+
+TEST(Spake2, AMovedFromExchangeRefusesToFinish)
+{
+    const auto code = spake2PasswordScalar("vigine.link.pairing", "734-218");
+    auto sideA      = Spake2::begin(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
+    auto sideB      = Spake2::begin(Spake2Role::B, code, bytesOf("map"), bytesOf("agent"));
+    ASSERT_TRUE(sideA && sideB);
+    const Spake2 taken{std::move(*sideA)};
+    EXPECT_FALSE(sideA->finish(sideB->share()).has_value());
+    EXPECT_TRUE(taken.finish(sideB->share()).has_value());
+}
+
 TEST(Spake2, ACodeMakesADifferentScalarForADifferentPurpose)
 {
     EXPECT_NE(asVector(spake2PasswordScalar("vigine.link.pairing", "734-218")),

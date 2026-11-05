@@ -45,7 +45,7 @@ class Spake2
   public:
     /* A fresh exchange: `password` is the shared scalar (spake2PasswordScalar),
        the identities name A and B as both sides know them. Nothing when the
-       password is not a scalar of the group. */
+       password is zero or not a scalar of the group. */
     [[nodiscard]] static std::optional<Spake2> begin(Spake2Role role,
                                                      std::span<const std::byte> password,
                                                      std::span<const std::byte> identityA,
@@ -60,7 +60,8 @@ class Spake2
     // What this side sends the other: pA for A, pB for B.
     [[nodiscard]] std::span<const std::byte, kSpake2ShareSize> share() const;
 
-    // The outcome for the peer's share; nothing when it is not a point of the curve.
+    /* The outcome for the peer's share; nothing when it is not a point of the curve, is the
+       identity, equals this side's own share, or when this exchange was moved from. */
     [[nodiscard]] std::optional<Spake2Outcome> finish(std::span<const std::byte> peerShare) const;
 
     Spake2(Spake2 &&) noexcept;

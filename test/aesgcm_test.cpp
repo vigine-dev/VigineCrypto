@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <gtest/gtest.h>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -175,4 +176,25 @@ TEST(AesGcm, AKeptCipherOpensInPlaceAndRefusesATagThatDoesNotHold)
     std::vector<std::byte> opened(sealed.size());
     EXPECT_FALSE(receiver.open(nonceNumber(8), sealed, tag, {}, opened))
         << "another nonce does not open it";
+}
+
+// The size check runs before any byte is read or allocated, so the spans below only
+// claim a length above INT_MAX over a small buffer; nothing past it is dereferenced.
+TEST(AesGcm, RefusesSizesAboveIntMaxBeforeOpenSsl)
+{
+    const auto key       = vigine::crypto::AesGcmKey::random();
+    const auto nonce     = sampleNonce();
+    const std::array<std::byte, vigine::crypto::kAesGcmTagSize> tag{};
+    const std::vector<std::byte> small(16);
+    const auto tooLong = static_cast<std::size_t>(std::numeric_limits<int>::max()) + 1;
+
+    const std::span<const std::byte> forgedCiphertext(small.data(), tooLong);
+    EXPECT_FALSE(vigine::crypto::open(key, nonce, forgedCiphertext, tag).has_value());
+
+    const std::span<const std::byte> forgedAad(small.data(), tooLong);
+    EXPECT_FALSE(vigine::crypto::open(key, nonce, {}, tag, forgedAad).has_value());
+
+    vigine::crypto::AesGcmCipher cipher{sampleKey()};
+    std::vector<std::byte> out(16);
+    EXPECT_FALSE(cipher.open(nonceNumber(1), forgedCiphertext, tag, {}, out));
 }

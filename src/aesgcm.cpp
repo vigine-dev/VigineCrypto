@@ -4,6 +4,7 @@
 #include "vigine/crypto/random.h"
 
 #include <algorithm>
+#include <limits>
 #include <openssl/crypto.h>
 
 namespace vigine::crypto
@@ -11,6 +12,17 @@ namespace vigine::crypto
 
 using detail::CipherCtxPtr;
 using detail::fatal;
+
+namespace
+{
+
+// OpenSSL takes every length as int; a larger buffer would arrive as a negative count.
+bool fitsOpenSslLength(std::size_t size)
+{
+    return size <= static_cast<std::size_t>(std::numeric_limits<int>::max());
+}
+
+} // namespace
 
 AesGcmKey::AesGcmKey(std::span<const std::byte, kAesGcmKeySize> bytes)
 {
@@ -54,6 +66,9 @@ void AesGcmKey::withBytes(
 AesGcmSealed seal(const AesGcmKey &key, std::span<const std::byte, kAesGcmNonceSize> nonce,
                   std::span<const std::byte> plaintext, std::span<const std::byte> aad)
 {
+    if (!fitsOpenSslLength(plaintext.size()) || !fitsOpenSslLength(aad.size()))
+        fatal("crypto.aesgcm.seal_size");
+
     AesGcmSealed sealed;
     sealed.ciphertext.resize(plaintext.size());
 
@@ -105,6 +120,10 @@ std::optional<std::vector<std::byte>> open(const AesGcmKey &key,
                                            std::span<const std::byte, kAesGcmTagSize> tag,
                                            std::span<const std::byte> aad)
 {
+    // Refused like a failed tag: nothing is decrypted or allocated.
+    if (!fitsOpenSslLength(ciphertext.size()) || !fitsOpenSslLength(aad.size()))
+        return std::nullopt;
+
     std::vector<std::byte> plaintext(ciphertext.size());
     bool authentic = false;
 
@@ -209,6 +228,8 @@ void AesGcmCipher::seal(std::span<const std::byte, kAesGcmNonceSize> nonce,
                         std::span<const std::byte> plaintext, std::span<const std::byte> aad,
                         std::span<std::byte> out, std::span<std::byte, kAesGcmTagSize> tag)
 {
+    if (!fitsOpenSslLength(plaintext.size()) || !fitsOpenSslLength(aad.size()))
+        fatal("crypto.aesgcm.cipher_seal_size");
     EVP_CIPHER_CTX *context = _contexts->sealing.get();
     if (out.size() != plaintext.size() ||
         EVP_EncryptInit_ex(context, nullptr, nullptr, nullptr, bytesOf(nonce)) != 1)
@@ -234,6 +255,8 @@ bool AesGcmCipher::open(std::span<const std::byte, kAesGcmNonceSize> nonce,
                         std::span<const std::byte, kAesGcmTagSize> tag,
                         std::span<const std::byte> aad, std::span<std::byte> out)
 {
+    if (!fitsOpenSslLength(ciphertext.size()) || !fitsOpenSslLength(aad.size()))
+        return false;
     EVP_CIPHER_CTX *context = _contexts->opening.get();
     if (out.size() != ciphertext.size() ||
         EVP_DecryptInit_ex(context, nullptr, nullptr, nullptr, bytesOf(nonce)) != 1)

@@ -3,6 +3,7 @@
 #include "vigine/crypto/hkdf.h"
 #include "vigine/crypto/spake2.h"
 
+#include <algorithm>
 #include <cstring>
 #include <openssl/bn.h>
 #include <openssl/crypto.h>
@@ -159,12 +160,11 @@ std::optional<Spake2> Spake2::begin(Spake2Role role, std::span<const std::byte> 
             detail::fatal("spake2");
     } while (BN_is_zero(secret.get()) == 1);
     std::array<std::byte, kSpake2ScalarSize> scalar{};
+    const detail::SecretWipe scalarWipe{scalar};
     if (BN_bn2binpad(secret.get(), reinterpret_cast<unsigned char *>(scalar.data()),
                      static_cast<int>(scalar.size())) != static_cast<int>(scalar.size()))
         detail::fatal("spake2");
-    std::optional<Spake2> exchange = beginWithScalar(role, password, identityA, identityB, scalar);
-    OPENSSL_cleanse(scalar.data(), scalar.size());
-    return exchange;
+    return beginWithScalar(role, password, identityA, identityB, scalar);
 }
 
 std::optional<Spake2> Spake2::beginWithScalar(Spake2Role role, std::span<const std::byte> password,
@@ -176,7 +176,10 @@ std::optional<Spake2> Spake2::beginWithScalar(Spake2Role role, std::span<const s
     const BnCtxPtr ctx{BN_CTX_new(), BN_CTX_free};
     if (!ctx)
         detail::fatal("spake2");
-    const BnPtr w      = scalarFrom(group.get(), password, true);
+    // A zero password scalar makes w*M the identity: a plain ECDH with no authentication.
+    // spake2PasswordScalar (SHA-256 mod the order) gives zero only for a digest of 0 or n,
+    // out of reach in practice, but a caller may pass any bytes, so zero is refused here.
+    const BnPtr w      = scalarFrom(group.get(), password, false);
     const BnPtr secret = scalarFrom(group.get(), scalar, false);
     if (!w || !secret || password.size() != kSpake2ScalarSize)
         return std::nullopt;
@@ -201,10 +204,22 @@ std::optional<Spake2> Spake2::beginWithScalar(Spake2Role role, std::span<const s
     return Spake2{std::move(state)};
 }
 
-std::span<const std::byte, kSpake2ShareSize> Spake2::share() const { return _state->share; }
+std::span<const std::byte, kSpake2ShareSize> Spake2::share() const
+{
+    static const std::array<std::byte, kSpake2ShareSize> kEmpty{};
+    return _state ? std::span<const std::byte, kSpake2ShareSize>{_state->share}
+                  : std::span<const std::byte, kSpake2ShareSize>{kEmpty};
+}
 
 std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare) const
 {
+    // A moved-from exchange holds nothing to finish.
+    if (!_state)
+        return std::nullopt;
+    // A share equal to our own is a reflection of it.
+    if (peerShare.size() == _state->share.size() &&
+        std::equal(peerShare.begin(), peerShare.end(), _state->share.begin()))
+        return std::nullopt;
     const GroupPtr group = p256();
     const BnCtxPtr ctx{BN_CTX_new(), BN_CTX_free};
     if (!ctx)
@@ -212,7 +227,7 @@ std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare
     const PointPtr peer = decodePoint(group.get(), peerShare, ctx.get());
     if (!peer)
         return std::nullopt;
-    const BnPtr w      = scalarFrom(group.get(), _state->password, true);
+    const BnPtr w      = scalarFrom(group.get(), _state->password, false);
     const BnPtr secret = scalarFrom(group.get(), _state->scalar, false);
     if (!w || !secret)
         return std::nullopt;
@@ -234,12 +249,18 @@ std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare
         detail::fatal("spake2");
     if (EC_POINT_is_at_infinity(group.get(), key.get()) == 1)
         return std::nullopt;
-    const std::array<std::byte, kSpake2ShareSize> keyBytes =
+    std::array<std::byte, kSpake2ShareSize> keyBytes =
         encodePoint(group.get(), key.get(), ctx.get());
+    const detail::SecretWipe keyWipe{keyBytes};
 
     // TT = len(A)||A || len(B)||B || len(pA)||pA || len(pB)||pB || len(K)||K || len(w)||w.
     const std::span<const std::byte> ownShare{_state->share};
+    // Reserved up front: a regrowing buffer would leave stale copies of K and w in freed memory.
     std::vector<std::byte> transcript;
+    transcript.reserve(6 * 8 + _state->identityA.size() + _state->identityB.size() +
+                       ownShare.size() + peerShare.size() + keyBytes.size() +
+                       _state->password.size());
+    const detail::SecretWipe transcriptWipe{transcript};
     appendField(transcript, _state->identityA);
     appendField(transcript, _state->identityB);
     appendField(transcript, sideA ? ownShare : peerShare);
@@ -248,9 +269,11 @@ std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare
     appendField(transcript, _state->password);
 
     std::array<std::byte, 32> digest = sha256(transcript);
+    const detail::SecretWipe digestWipe{digest};
     const std::span<const std::byte> ka{digest.data() + kSpake2KeySize, kSpake2KeySize};
     std::vector<std::byte> confirmationKeys =
         hkdfSha256(ka, {}, std::as_bytes(std::span{kConfirmationInfo}), 2 * kSpake2KeySize);
+    const detail::SecretWipe confirmationWipe{confirmationKeys};
     if (confirmationKeys.size() != 2 * kSpake2KeySize)
         detail::fatal("spake2");
 
@@ -260,8 +283,6 @@ std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare
         hmacSha256(std::span{confirmationKeys.data(), kSpake2KeySize}, transcript);
     outcome.confirmationB =
         hmacSha256(std::span{confirmationKeys.data() + kSpake2KeySize, kSpake2KeySize}, transcript);
-    OPENSSL_cleanse(digest.data(), digest.size());
-    OPENSSL_cleanse(confirmationKeys.data(), confirmationKeys.size());
     return outcome;
 }
 
@@ -269,13 +290,15 @@ std::array<std::byte, kSpake2ScalarSize> spake2PasswordScalar(std::string_view d
                                                               std::string_view code)
 {
     std::vector<std::byte> input;
+    input.reserve(domain.size() + 1 + code.size());
+    const detail::SecretWipe inputWipe{input};
     for (const char character : domain)
         input.push_back(static_cast<std::byte>(character));
     input.push_back(std::byte{0});
     for (const char character : code)
         input.push_back(static_cast<std::byte>(character));
     std::array<std::byte, 32> digest = sha256(input);
-    OPENSSL_cleanse(input.data(), input.size());
+    const detail::SecretWipe digestWipe{digest};
 
     const GroupPtr group = p256();
     const BnCtxPtr ctx{BN_CTX_new(), BN_CTX_free};
@@ -288,7 +311,6 @@ std::array<std::byte, kSpake2ScalarSize> spake2PasswordScalar(std::string_view d
     if (BN_bn2binpad(value.get(), reinterpret_cast<unsigned char *>(scalar.data()),
                      static_cast<int>(scalar.size())) != static_cast<int>(scalar.size()))
         detail::fatal("spake2");
-    OPENSSL_cleanse(digest.data(), digest.size());
     return scalar;
 }
 
