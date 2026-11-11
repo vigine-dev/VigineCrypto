@@ -36,20 +36,9 @@ headers, link that one and build no OpenSSL at all:
 cmake -S . -B build -DVIGINECRYPTO_SYSTEM_OPENSSL=ON
 ```
 
-### One OpenSSL per machine
+### OpenSSL lives in the build folder
 
-The first build tree that builds OpenSSL shares it -- its headers and static
-libraries -- under `VIGINECRYPTO_OPENSSL_CACHE` (by default
-`%LOCALAPPDATA%/vigine/openssl` on Windows, `~/.cache/vigine/openssl`
-elsewhere; the environment variable of the same name sets it too), in a folder
-named after the OpenSSL commit, the Configure target and options and the
-compiler. Every later tree with the same key links that copy and builds no
-OpenSSL of its own. An OpenSSL source with edits of its own is never shared,
-and an empty value turns the sharing off:
-
-```sh
-cmake -S . -B build -DVIGINECRYPTO_OPENSSL_CACHE=
-```
+OpenSSL is built once, inside VigineCrypto's own build folder. No copy of it is shared between build trees or kept elsewhere on the machine.
 
 ## Build
 
@@ -60,6 +49,4 @@ cmake --build build --config Release
 
 ## Test
 
-```sh
-ctest --test-dir build -C Release --output-on-failure
-```
+VigineCrypto's tests come from VigineUnitTest (task 18248 brings them back); switching them on here stops the configure with a message saying so.

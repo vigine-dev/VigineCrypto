@@ -55,7 +55,6 @@ endif()
 # be found the configure stops with the reason.
 set(_openssl_sys_env "")
 set(_openssl_sys_flags "")
-set(_openssl_sys_key "")
 if(APPLE)
     set(_openssl_sdk "")
     if(CMAKE_OSX_SYSROOT)
@@ -81,11 +80,8 @@ if(APPLE)
             "SDKROOT is not a directory and `xcrun --show-sdk-path` gave nothing). "
             "Install the Xcode command line tools or set SDKROOT.")
     endif()
-    # The key names the SDK by its real directory, so MacOSX.sdk moving to a new version rebuilds.
-    get_filename_component(_openssl_sdk_real "${_openssl_sdk}" REALPATH)
     set(_openssl_sys_env "SDKROOT=${_openssl_sdk}")
     set(_openssl_sys_flags "-isysroot ${_openssl_sdk}")
-    set(_openssl_sys_key "${_openssl_sdk_real}")
 elseif(WIN32)
     if(NOT DEFINED ENV{INCLUDE} OR "$ENV{INCLUDE}" STREQUAL "" OR NOT DEFINED ENV{LIB} OR "$ENV{LIB}" STREQUAL "")
         message(FATAL_ERROR "VendorOpenSSL: INCLUDE and LIB are not set, so the Visual Studio "
@@ -94,7 +90,6 @@ elseif(WIN32)
     endif()
     # INCLUDE and LIB are not passed on the command line: their backslashes and `;` do not survive
     # the generated configure script. The OpenSSL steps inherit them from the Visual Studio shell.
-    set(_openssl_sys_key "$ENV{INCLUDE}|$ENV{LIB}")
 elseif(UNIX)
     set(_openssl_sys_dirs "")
     foreach(_openssl_dir IN LISTS CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES)
@@ -109,8 +104,6 @@ elseif(UNIX)
             "empty and the compiler reported no implicit include directories). "
             "Set CMAKE_SYSROOT or install the C library headers.")
     endif()
-    string(REPLACE ";" "," _openssl_sys_dirs_key "${_openssl_sys_dirs}")
-    set(_openssl_sys_key "${CMAKE_SYSROOT}|${_openssl_sys_dirs_key}")
 endif()
 string(STRIP "${_openssl_sys_flags}" _openssl_sys_flags)
 
@@ -183,47 +176,7 @@ else()
     set(_openssl_extra_conf "")
 endif()
 
-# One built OpenSSL per machine: every build tree with the same OpenSSL commit, Configure target,
-# options, compiler and system header/library paths links the copy the first of them published,
-# and builds none of its own.
-# An empty VIGINECRYPTO_OPENSSL_CACHE turns the sharing off.
-if(DEFINED ENV{VIGINECRYPTO_OPENSSL_CACHE})
-    set(_openssl_cache_default $ENV{VIGINECRYPTO_OPENSSL_CACHE})
-elseif(WIN32)
-    file(TO_CMAKE_PATH "$ENV{LOCALAPPDATA}/vigine/openssl" _openssl_cache_default)
-else()
-    set(_openssl_cache_default "$ENV{HOME}/.cache/vigine/openssl")
-endif()
-set(VIGINECRYPTO_OPENSSL_CACHE "${_openssl_cache_default}" CACHE PATH
-    "Where the built OpenSSL is shared between build trees; empty builds it in every tree")
-
-set(_openssl_cached "")
-if(VIGINECRYPTO_OPENSSL_CACHE)
-    find_package(Git QUIET)
-    if(GIT_FOUND)
-        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${_openssl_src} rev-parse HEAD
-            OUTPUT_VARIABLE _openssl_commit OUTPUT_STRIP_TRAILING_WHITESPACE
-            RESULT_VARIABLE _openssl_commit_result ERROR_QUIET)
-        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${_openssl_src} status --porcelain --untracked-files=no
-            OUTPUT_VARIABLE _openssl_dirty OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-    endif()
-    # A source with edits of its own is no commit's: it is built in the tree. On Windows nmake drives
-    # the cl of the VC shell whatever CMake compiles with, so its toolset is in the key too.
-    if(_openssl_commit_result EQUAL 0 AND _openssl_commit AND NOT _openssl_dirty)
-        string(SHA256 _openssl_key "2|${_openssl_commit}|${_openssl_target}|${_openssl_extra_conf}|${_openssl_dir}|${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_C_COMPILER}|${MSVC_VERSION}|$ENV{VCToolsVersion}|${_openssl_sys_key}|${_openssl_sys_flags}")
-        string(SUBSTRING ${_openssl_key} 0 20 _openssl_key)
-        set(_openssl_cached ${VIGINECRYPTO_OPENSSL_CACHE}/${_openssl_key})
-    endif()
-endif()
-
-if(_openssl_cached AND EXISTS ${_openssl_cached}/lib/${_openssl_crypto_name}
-   AND EXISTS ${_openssl_cached}/lib/${_openssl_ssl_name})
-    message(STATUS "VigineCrypto: OpenSSL from ${_openssl_cached}")
-    set(_openssl_install ${_openssl_cached})
-    set(_openssl_crypto_lib ${_openssl_install}/lib/${_openssl_crypto_name})
-    set(_openssl_ssl_lib ${_openssl_install}/lib/${_openssl_ssl_name})
-    add_custom_target(openssl_external)
-else()
+# OpenSSL is built once, inside this build folder; nothing is shared between build trees.
 ExternalProject_Add(openssl_external
     SOURCE_DIR ${_openssl_source_dir}
     PREFIX ${_openssl_prefix}
@@ -252,14 +205,6 @@ ExternalProject_Add(openssl_external
     LOG_BUILD 1
     LOG_INSTALL 1
 )
-if(_openssl_cached)
-    ExternalProject_Add_Step(openssl_external publish
-        COMMAND ${CMAKE_COMMAND} -DFROM=${_openssl_install} -DTO=${_openssl_cached}
-                -P ${CMAKE_CURRENT_LIST_DIR}/PublishOpenSSL.cmake
-        DEPENDEES install
-        COMMENT "Sharing the built OpenSSL as ${_openssl_cached}")
-endif()
-endif()
 
 file(MAKE_DIRECTORY ${_openssl_install}/include)
 
