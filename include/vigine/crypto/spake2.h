@@ -64,7 +64,7 @@ class Spake2Outcome
 };
 
 // One side of one exchange; its secret scalar is wiped when it goes.
-class VIGINECRYPTO_API ISpake2Session
+class ISpake2Session
 {
   public:
     virtual ~ISpake2Session() = default;

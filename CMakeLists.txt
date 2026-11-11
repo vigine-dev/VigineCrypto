@@ -69,13 +69,23 @@ target_link_libraries(VigineCrypto PRIVATE vigine::openssl::ssl blake3)
 
 # What may leave the library, per system:
 #  - macOS: -load_hidden pulls each archive in with every symbol private, and an exported-symbols
-#    list names the only symbols exported (C++ names in namespace vigine); -dead_strip drops the rest;
+#    list (written into the build folder, the same names as the Linux version script) names the
+#    only symbols exported; -dead_strip drops the rest;
 #  - Linux: --exclude-libs,ALL keeps the archives' symbols out of the dynamic table, and a version
 #    script exports only vigine::* (the standard library's weak instantiations stay private too);
 #  - Windows: a DLL exports only dllexport-marked symbols, so the archives link in as they are;
 #    /OPT:REF drops the unreferenced.
 if(APPLE)
-    set(VIGINECRYPTO_EXPORTS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/cmake/viginecrypto.exp)
+    set(VIGINECRYPTO_EXPORTS_FILE ${CMAKE_CURRENT_BINARY_DIR}/viginecrypto.exp)
+    file(WRITE ${VIGINECRYPTO_EXPORTS_FILE}
+"__ZN6vigine*
+__ZNK6vigine*
+__ZNO6vigine*
+__ZNKO6vigine*
+__ZTVN6vigine*
+__ZTIN6vigine*
+__ZTSN6vigine*
+")
     target_link_options(VigineCrypto PRIVATE
         "LINKER:-exported_symbols_list,${VIGINECRYPTO_EXPORTS_FILE}"
         "LINKER:-dead_strip"

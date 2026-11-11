@@ -18,7 +18,7 @@ inline constexpr std::size_t kBlake3HashSize = 32;
 
 // Incremental BLAKE3 hashing for inputs assembled from several pieces. The
 // backend hasher state lives inside the library; this interface names no backend type.
-class VIGINECRYPTO_API IHasher
+class IHasher
 {
   public:
     virtual ~IHasher() = default;

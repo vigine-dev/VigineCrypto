@@ -37,7 +37,7 @@ class SelfSignedCert
 // as a uintptr_t). Client or server. All OpenSSL SSL_* types stay hidden.
 // TLS below 1.3 is refused, and the client always verifies the server's
 // certificate and hostname -- there is no "skip verification" knob.
-class VIGINECRYPTO_API ITlsStream
+class ITlsStream
 {
   public:
     virtual ~ITlsStream() = default;
