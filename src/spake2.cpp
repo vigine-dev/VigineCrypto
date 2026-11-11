@@ -125,7 +125,10 @@ std::array<std::byte, kSpake2ConfirmationSize> hmacSha256(std::span<const std::b
 
 } // namespace
 
-struct Spake2::State
+namespace
+{
+
+struct Spake2State
 {
     Spake2Role role{Spake2Role::A};
     std::array<std::byte, kSpake2ScalarSize> password{};
@@ -134,19 +137,28 @@ struct Spake2::State
     std::array<std::byte, kSpake2ScalarSize> scalar{};
     std::array<std::byte, kSpake2ShareSize> share{};
 
-    ~State()
+    ~Spake2State()
     {
         OPENSSL_cleanse(scalar.data(), scalar.size());
         OPENSSL_cleanse(password.data(), password.size());
     }
 };
 
-Spake2::Spake2(std::unique_ptr<State> state) : _state(std::move(state)) {}
-Spake2::Spake2(Spake2 &&) noexcept            = default;
-Spake2 &Spake2::operator=(Spake2 &&) noexcept = default;
-Spake2::~Spake2()                             = default;
+class Spake2Session final : public ISpake2Session
+{
+  public:
+    explicit Spake2Session(std::unique_ptr<Spake2State> state) : _state(std::move(state)) {}
 
-std::optional<Spake2> Spake2::begin(Spake2Role role, std::span<const std::byte> password,
+    std::span<const std::byte, kSpake2ShareSize> share() const override;
+    std::optional<Spake2Outcome> finish(std::span<const std::byte> peerShare) const override;
+
+  private:
+    std::unique_ptr<Spake2State> _state;
+};
+
+} // namespace
+
+std::optional<std::unique_ptr<ISpake2Session>> beginSpake2(Spake2Role role, std::span<const std::byte> password,
                                     std::span<const std::byte> identityA,
                                     std::span<const std::byte> identityB)
 {
@@ -164,10 +176,10 @@ std::optional<Spake2> Spake2::begin(Spake2Role role, std::span<const std::byte> 
     if (BN_bn2binpad(secret.get(), reinterpret_cast<unsigned char *>(scalar.data()),
                      static_cast<int>(scalar.size())) != static_cast<int>(scalar.size()))
         detail::fatal("spake2");
-    return beginWithScalar(role, password, identityA, identityB, scalar);
+    return beginSpake2WithScalar(role, password, identityA, identityB, scalar);
 }
 
-std::optional<Spake2> Spake2::beginWithScalar(Spake2Role role, std::span<const std::byte> password,
+std::optional<std::unique_ptr<ISpake2Session>> beginSpake2WithScalar(Spake2Role role, std::span<const std::byte> password,
                                               std::span<const std::byte> identityA,
                                               std::span<const std::byte> identityB,
                                               std::span<const std::byte, kSpake2ScalarSize> scalar)
@@ -194,28 +206,23 @@ std::optional<Spake2> Spake2::beginWithScalar(Spake2Role role, std::span<const s
         EC_POINT_mul(group.get(), shared.get(), secret.get(), blind.get(), w.get(), ctx.get()) != 1)
         detail::fatal("spake2");
 
-    auto state  = std::make_unique<State>();
+    auto state  = std::make_unique<Spake2State>();
     state->role = role;
     state->identityA.assign(identityA.begin(), identityA.end());
     state->identityB.assign(identityB.begin(), identityB.end());
     std::memcpy(state->password.data(), password.data(), password.size());
     std::memcpy(state->scalar.data(), scalar.data(), scalar.size());
     state->share = encodePoint(group.get(), shared.get(), ctx.get());
-    return Spake2{std::move(state)};
+    return std::unique_ptr<ISpake2Session>{std::make_unique<Spake2Session>(std::move(state))};
 }
 
-std::span<const std::byte, kSpake2ShareSize> Spake2::share() const
+std::span<const std::byte, kSpake2ShareSize> Spake2Session::share() const
 {
-    static const std::array<std::byte, kSpake2ShareSize> kEmpty{};
-    return _state ? std::span<const std::byte, kSpake2ShareSize>{_state->share}
-                  : std::span<const std::byte, kSpake2ShareSize>{kEmpty};
+    return std::span<const std::byte, kSpake2ShareSize>{_state->share};
 }
 
-std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare) const
+std::optional<Spake2Outcome> Spake2Session::finish(std::span<const std::byte> peerShare) const
 {
-    // A moved-from exchange holds nothing to finish.
-    if (!_state)
-        return std::nullopt;
     // A share equal to our own is a reflection of it.
     if (peerShare.size() == _state->share.size() &&
         std::equal(peerShare.begin(), peerShare.end(), _state->share.begin()))
@@ -277,13 +284,11 @@ std::optional<Spake2Outcome> Spake2::finish(std::span<const std::byte> peerShare
     if (confirmationKeys.size() != 2 * kSpake2KeySize)
         detail::fatal("spake2");
 
-    Spake2Outcome outcome;
-    std::memcpy(outcome.sharedKey.data(), digest.data(), kSpake2KeySize);
-    outcome.confirmationA =
-        hmacSha256(std::span{confirmationKeys.data(), kSpake2KeySize}, transcript);
-    outcome.confirmationB =
-        hmacSha256(std::span{confirmationKeys.data() + kSpake2KeySize, kSpake2KeySize}, transcript);
-    return outcome;
+    std::array<std::byte, kSpake2KeySize> sharedKey{};
+    std::memcpy(sharedKey.data(), digest.data(), kSpake2KeySize);
+    return Spake2Outcome{
+        sharedKey, hmacSha256(std::span{confirmationKeys.data(), kSpake2KeySize}, transcript),
+        hmacSha256(std::span{confirmationKeys.data() + kSpake2KeySize, kSpake2KeySize}, transcript)};
 }
 
 std::array<std::byte, kSpake2ScalarSize> spake2PasswordScalar(std::string_view domain,

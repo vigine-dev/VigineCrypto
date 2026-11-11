@@ -99,19 +99,20 @@ std::optional<MlKemEncapsulation> mlKemEncapsulate(const MlKemPublicKey &peerPub
     if (!peerKey)
         return std::nullopt;
     PkeyCtxPtr ctx{EVP_PKEY_CTX_new_from_pkey(nullptr, peerKey.get(), nullptr), &EVP_PKEY_CTX_free};
-    MlKemEncapsulation out;
-    std::size_t ciphertextLength = out.ciphertext.size();
-    std::size_t secretLength     = out.sharedSecret.size();
+    std::array<std::byte, kMlKem768CiphertextSize> ciphertext{};
+    std::array<std::byte, kMlKemSharedSecretSize> sharedSecret{};
+    std::size_t ciphertextLength = ciphertext.size();
+    std::size_t secretLength     = sharedSecret.size();
     if (!ctx || EVP_PKEY_encapsulate_init(ctx.get(), nullptr) != 1 ||
         EVP_PKEY_encapsulate(
-            ctx.get(), reinterpret_cast<unsigned char *>(out.ciphertext.data()), &ciphertextLength,
-            reinterpret_cast<unsigned char *>(out.sharedSecret.data()), &secretLength) != 1 ||
+            ctx.get(), reinterpret_cast<unsigned char *>(ciphertext.data()), &ciphertextLength,
+            reinterpret_cast<unsigned char *>(sharedSecret.data()), &secretLength) != 1 ||
         ciphertextLength != kMlKem768CiphertextSize || secretLength != kMlKemSharedSecretSize)
     {
-        OPENSSL_cleanse(out.sharedSecret.data(), out.sharedSecret.size());
+        OPENSSL_cleanse(sharedSecret.data(), sharedSecret.size());
         return std::nullopt;
     }
-    return out;
+    return MlKemEncapsulation{ciphertext, sharedSecret};
 }
 
 std::optional<std::array<std::byte, kMlKemSharedSecretSize>>
