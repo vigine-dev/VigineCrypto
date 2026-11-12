@@ -156,4 +156,7 @@ if(VIGINECRYPTO_BUILD_TESTS)
         test/x25519_test.cpp)
     # cryptodetail_test and tls_test use OpenSSL directly.
     target_link_libraries(viginecrypto-test PRIVATE VigineCrypto::VigineCrypto vigine::openssl::ssl)
+    if(WIN32)
+        target_link_libraries(viginecrypto-test PRIVATE ws2_32)
+    endif()
 endif()
