@@ -1,0 +1,82 @@
+[recipe]
+repo = "VigineCrypto"
+variants = ["debug", "release"]
+owns = ["openssl", "BLAKE3"]
+
+[[dependency]]
+repo = "openssl"
+path = "external/openssl"
+branch = "vigine/main"
+commit = "286ddeaac037533bbdce65b3c689e3f7ffebf0f6"
+
+[[dependency]]
+repo = "BLAKE3"
+path = "external/blake3"
+branch = "vigine/main"
+commit = "93a431c78a52d7ccf0f366f106467f5070e6075e"
+
+[[dependency]]
+repo = "VigineUnitTest"
+path = "install"
+branch = "main"
+commit = "ab232a65cc611b2a1227eeb7e204afef4140a108"
+
+[settings.common]
+CMAKE_C_VISIBILITY_PRESET = "hidden"
+CMAKE_CXX_VISIBILITY_PRESET = "hidden"
+CMAKE_VISIBILITY_INLINES_HIDDEN = "ON"
+CMAKE_POSITION_INDEPENDENT_CODE = "ON"
+BUILD_SHARED_LIBS = "ON"
+CMAKE_CXX_STANDARD = "23"
+CMAKE_CXX_STANDARD_REQUIRED = "ON"
+CMAKE_CXX_EXTENSIONS = "OFF"
+
+[settings.macos]
+CMAKE_SHARED_LINKER_FLAGS = "-Wl,-dead_strip"
+VIGINECRYPTO_PERL = "/usr/bin/perl"
+VIGINECRYPTO_MAKE = "/usr/bin/make"
+
+[settings.windows]
+CMAKE_SHARED_LINKER_FLAGS = "/OPT:REF"
+VIGINECRYPTO_PERL = "C:/Strawberry/perl/bin/perl.exe"
+VIGINECRYPTO_MAKE = "C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/nmake.exe"
+
+[settings.linux]
+CMAKE_SHARED_LINKER_FLAGS = "-Wl,--exclude-libs,ALL"
+VIGINECRYPTO_PERL = "/usr/bin/perl"
+VIGINECRYPTO_MAKE = "/usr/bin/make"
+
+[[step]]
+id = "configure-posix"
+variant = "both"
+systems = ["macos", "linux"]
+run = "cmake -S {repo_root} -B build/{variant} -G Ninja -DCMAKE_BUILD_TYPE={variant} -DCMAKE_CXX_COMPILER={compiler} -DCMAKE_C_COMPILER=$(dirname {compiler})/clang -DCMAKE_ASM_COMPILER=$(dirname {compiler})/clang -DCMAKE_PREFIX_PATH={install} {settings}"
+why = "One build folder per variant; the C compiler is the one beside our C++ compiler, because OpenSSL and BLAKE3 are C; OpenSSL's Configure and make are the programs the settings name; VigineUnitTest is found from the install folder."
+
+[[step]]
+id = "configure-windows"
+variant = "both"
+systems = ["windows"]
+run = "cmake -S {repo_root} -B build/{variant} -G Ninja -DCMAKE_BUILD_TYPE={variant} -DCMAKE_CXX_COMPILER={compiler} -DCMAKE_C_COMPILER={compiler} -DCMAKE_ASM_COMPILER={compiler} -DCMAKE_PREFIX_PATH={install} {settings}"
+why = "One build folder per variant, run from a Visual Studio developer shell (OpenSSL's nmake build reads INCLUDE and LIB); the compiler driver on Windows is one program for C, C++ and assembly."
+
+[[step]]
+id = "build"
+variant = "both"
+run = "cmake --build build/{variant}"
+why = "Builds OpenSSL through its own Configure and make steps, then the shared library with OpenSSL and BLAKE3 compiled in, and its tests."
+
+[[step]]
+id = "test"
+variant = "both"
+run = "ctest --test-dir build/{variant} --output-on-failure --output-junit test-results/ctest.xml"
+why = "A recipe repository runs its tests as a recipe step, so the passport records the run; the JUnit file lands in build/{variant}/test-results."
+
+[[rule]]
+text = "OpenSSL and BLAKE3 live only inside the shared library; no OpenSSL or BLAKE3 header or library is installed."
+
+[[rule]]
+text = "VIGINECRYPTO_PERL and VIGINECRYPTO_MAKE are absolute paths per system; the configure stops, naming the one that is missing, and never searches PATH."
+
+[[rule]]
+text = "On Linux the version script cmake/viginecrypto.map is attached by CMakeLists.txt (it needs the source path); the recipe's linker flag states exclude-libs. On macOS an exported-symbols list is attached the same way."

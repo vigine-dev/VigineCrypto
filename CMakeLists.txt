@@ -23,7 +23,13 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/VendorOpenSSL.cmake)
 
 # BLAKE3 content-addressing hashes. The reference C library ships its own
 # CMake, so a plain add_subdirectory suffices.
+# BLAKE3 is linked inside VigineCrypto, so it is built static whatever BUILD_SHARED_LIBS says
+# (the recipe sets it ON for the libraries of the repository); a shared one would be a second library
+# the installed package does not carry.
+set(_viginecrypto_shared_libs "${BUILD_SHARED_LIBS}")
+set(BUILD_SHARED_LIBS OFF)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/blake3/c ${CMAKE_BINARY_DIR}/blake3 EXCLUDE_FROM_ALL)
+set(BUILD_SHARED_LIBS "${_viginecrypto_shared_libs}")
 
 # --- the library ---------------------------------------------------------
 # VigineCrypto is a shared library: it exports only its own interfaces,
@@ -61,6 +67,7 @@ endif()
 target_include_directories(VigineCrypto
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PUBLIC $<BUILD_INTERFACE:${VIGINECRYPTO_GENERATED_INCLUDE}>
+    PUBLIC $<INSTALL_INTERFACE:include>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # The backends are static archives linked PRIVATE: consumers see neither their headers nor
@@ -105,6 +112,30 @@ elseif(UNIX)
 else()
     target_link_options(VigineCrypto PRIVATE "LINKER:/OPT:REF")
 endif()
+
+# --- install and package ---------------------------------------------------
+# Only VigineCrypto's own headers, its export header and the library are installed: OpenSSL and
+# BLAKE3 live inside the shared library, so none of their headers or libraries leave it.
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+install(TARGETS VigineCrypto EXPORT VigineCryptoTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES ${VIGINECRYPTO_HEADERS} ${VIGINECRYPTO_GENERATED_INCLUDE}/vigine/crypto/viginecrypto_export.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/vigine/crypto)
+set(VIGINECRYPTO_PACKAGE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/VigineCrypto)
+install(EXPORT VigineCryptoTargets NAMESPACE VigineCrypto:: FILE VigineCryptoTargets.cmake
+    DESTINATION ${VIGINECRYPTO_PACKAGE_DIR})
+configure_package_config_file(cmake/VigineCryptoConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/VigineCryptoConfig.cmake
+    INSTALL_DESTINATION ${VIGINECRYPTO_PACKAGE_DIR})
+write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/VigineCryptoConfigVersion.cmake
+    VERSION 0.1.0 COMPATIBILITY SameMajorVersion)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/VigineCryptoConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/VigineCryptoConfigVersion.cmake
+    DESTINATION ${VIGINECRYPTO_PACKAGE_DIR})
 
 # --- tests ---------------------------------------------------------------
 # VigineUnitTest is found from CMAKE_PREFIX_PATH (<root>/install/<variant>).

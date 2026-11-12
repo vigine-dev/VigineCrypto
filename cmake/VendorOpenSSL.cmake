@@ -25,6 +25,19 @@ if(VIGINECRYPTO_SYSTEM_OPENSSL)
     return()
 endif()
 
+# The two programs of OpenSSL's own build are named by the caller, never searched for on PATH:
+# VIGINECRYPTO_PERL runs Configure (a full Perl: Strawberry on Windows), VIGINECRYPTO_MAKE builds
+# (make on macOS and Linux, nmake of the Visual Studio toolchain on Windows).
+foreach(_openssl_tool VIGINECRYPTO_PERL VIGINECRYPTO_MAKE)
+    if("${${_openssl_tool}}" STREQUAL "")
+        message(FATAL_ERROR "VendorOpenSSL: ${_openssl_tool} is not set. Pass the absolute path of the "
+            "program (-D${_openssl_tool}=<path>); the vigine.build.toml recipe states it for every system.")
+    endif()
+    if(NOT EXISTS "${${_openssl_tool}}")
+        message(FATAL_ERROR "VendorOpenSSL: ${_openssl_tool} is \"${${_openssl_tool}}\", which does not exist.")
+    endif()
+endforeach()
+
 set(_openssl_src ${VIGINECRYPTO_ROOT_DIR}/external/openssl)
 set(_openssl_prefix ${CMAKE_BINARY_DIR}/external/openssl)
 set(_openssl_install ${_openssl_prefix}/install)
@@ -119,8 +132,8 @@ string(STRIP "${_openssl_sys_flags}" _openssl_sys_flags)
 if(WIN32)
     set(_openssl_crypto_name libcrypto.lib)
     set(_openssl_ssl_name libssl.lib)
-    set(_openssl_build_cmd nmake)
-    set(_openssl_install_cmd nmake install_dev)
+    set(_openssl_build_cmd ${VIGINECRYPTO_MAKE})
+    set(_openssl_install_cmd ${VIGINECRYPTO_MAKE} install_dev)
     # libcrypto (CAPI engine, winstore store) and libssl reference Windows
     # system import libraries not bundled into the static .lib.
     set(_openssl_syslibs ws2_32 crypt32 advapi32 user32 gdi32 bcrypt)
@@ -128,8 +141,8 @@ if(WIN32)
 else()
     set(_openssl_crypto_name libcrypto.a)
     set(_openssl_ssl_name libssl.a)
-    set(_openssl_build_cmd make -j${_openssl_jobs} build_libs)
-    set(_openssl_install_cmd make install_dev)
+    set(_openssl_build_cmd ${VIGINECRYPTO_MAKE} -j${_openssl_jobs} build_libs)
+    set(_openssl_install_cmd ${VIGINECRYPTO_MAKE} install_dev)
     set(_openssl_syslibs "")
     set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}" "CFLAGS=${_openssl_sys_flags}" ${_openssl_sys_env})
 endif()
@@ -190,11 +203,9 @@ ExternalProject_Add(openssl_external
     # rebuild silently installs into `install/lib64/lib{ssl,crypto}.a`
     # and Make then fails to find `install/lib/lib{ssl,crypto}.a`
     # during the consumer link step with `No rule to make target`.
-    # `perl` must resolve to a full Perl (Strawberry or ActivePerl on Windows).
-    # The MSYS / Git-Bash perl lacks Locale::Maketext::Simple, which Configure
-    # pulls in transitively, so a build launched from a Git-Bash shell dies at
-    # configure with a bare "exited with code 1". Put a full Perl first on PATH.
-    CONFIGURE_COMMAND ${_openssl_toolchain_env} perl ${_openssl_configure_dir}/Configure ${_openssl_target}
+    # VIGINECRYPTO_PERL must be a full Perl (Strawberry or ActivePerl on Windows): the MSYS /
+    # Git-Bash perl lacks Locale::Maketext::Simple, which Configure pulls in transitively.
+    CONFIGURE_COMMAND ${_openssl_toolchain_env} ${VIGINECRYPTO_PERL} ${_openssl_configure_dir}/Configure ${_openssl_target}
         no-shared no-apps no-tests no-docs ${_openssl_extra_conf}
         --prefix=${_openssl_install} --libdir=lib
         --openssldir=${_openssl_dir}
