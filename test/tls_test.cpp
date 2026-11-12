@@ -6,10 +6,6 @@
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 
-// The round-trip test wires two endpoints over a POSIX socketpair. The
-// Windows equivalent (a localhost TCP pair) is a separate seat-owner task.
-#if !defined(_WIN32)
-
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -273,5 +269,3 @@ VIGINE_TEST(Tls, SystemRootsLoadAtLeastOne)
 {
     VIGINE_EXPECT_GT(tlsSystemRootCount(), 0U);
 }
-
-#endif
