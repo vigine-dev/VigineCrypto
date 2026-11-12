@@ -17,6 +17,9 @@
 
 namespace vigine::crypto
 {
+
+ISpake2Session::~ISpake2Session() = default;
+
 namespace
 {
 

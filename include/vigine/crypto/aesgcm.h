@@ -43,10 +43,10 @@ class VIGINECRYPTO_API AesGcmKey
    opens into the caller's buffers -- the same bytes may be both input and output -- setting only
    the nonce per message: no allocation and no new context per message, which is what a tunnel
    needs for every frame. One object serves one thread at a time. */
-class IAesGcmCipher
+class VIGINECRYPTO_API IAesGcmCipher
 {
   public:
-    virtual ~IAesGcmCipher() = default;
+    virtual ~IAesGcmCipher();
 
     // `out` is as long as `plaintext`.
     virtual void seal(std::span<const std::byte, kAesGcmNonceSize> nonce,

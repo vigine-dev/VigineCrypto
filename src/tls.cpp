@@ -20,6 +20,8 @@
 namespace vigine::crypto
 {
 
+ITlsStream::~ITlsStream() = default;
+
 namespace
 {
 
