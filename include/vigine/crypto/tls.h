@@ -40,7 +40,7 @@ class SelfSignedCert
 class VIGINECRYPTO_API ITlsStream
 {
   public:
-    virtual ~ITlsStream() = default;
+    virtual ~ITlsStream();
 
     // True when the handshake succeeded.
     [[nodiscard]] virtual bool ok() const noexcept = 0;

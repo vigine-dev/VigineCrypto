@@ -10,6 +10,8 @@
 namespace vigine::crypto
 {
 
+IAesGcmCipher::~IAesGcmCipher() = default;
+
 using detail::CipherCtxPtr;
 using detail::fatal;
 

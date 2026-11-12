@@ -6,6 +6,8 @@
 namespace vigine::crypto
 {
 
+IHasher::~IHasher() = default;
+
 std::array<std::byte, kBlake3HashSize> blake3(std::span<const std::byte> input)
 {
     blake3_hasher hasher;

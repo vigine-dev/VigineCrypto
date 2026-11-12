@@ -67,7 +67,7 @@ class Spake2Outcome
 class VIGINECRYPTO_API ISpake2Session
 {
   public:
-    virtual ~ISpake2Session() = default;
+    virtual ~ISpake2Session();
 
     // What this side sends the other: pA for A, pB for B.
     [[nodiscard]] virtual std::span<const std::byte, kSpake2ShareSize> share() const = 0;

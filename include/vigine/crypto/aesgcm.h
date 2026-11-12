@@ -46,7 +46,7 @@ class VIGINECRYPTO_API AesGcmKey
 class VIGINECRYPTO_API IAesGcmCipher
 {
   public:
-    virtual ~IAesGcmCipher() = default;
+    virtual ~IAesGcmCipher();
 
     // `out` is as long as `plaintext`.
     virtual void seal(std::span<const std::byte, kAesGcmNonceSize> nonce,
