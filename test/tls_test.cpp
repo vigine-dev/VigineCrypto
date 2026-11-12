@@ -1,6 +1,6 @@
 #include "vigine/crypto/tls.h"
 
-#include <gtest/gtest.h>
+#include <vigine/unittest/unittest.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
@@ -16,7 +16,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <csignal>
+#include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
@@ -26,7 +28,9 @@
 
 using vigine::crypto::generateSelfSignedCert;
 using vigine::crypto::SelfSignedCert;
-using vigine::crypto::TlsStream;
+using vigine::crypto::acceptTlsServer;
+using vigine::crypto::connectTlsClient;
+using vigine::crypto::tlsSystemRootCount;
 
 namespace
 {
@@ -39,88 +43,84 @@ std::vector<std::byte> bytesOf(std::string_view text)
 }
 } // namespace
 
-TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
+VIGINE_TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
 {
     const SelfSignedCert cert = generateSelfSignedCert("localhost");
-    ASSERT_FALSE(cert.certPem.empty());
-    ASSERT_FALSE(cert.keyPem.empty());
+    VIGINE_ASSERT_FALSE(cert.certPem().empty());
+    VIGINE_ASSERT_FALSE(cert.keyPem().empty());
 
     int fds[2] = {-1, -1};
-    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    VIGINE_ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
     bool serverOk = false;
     std::vector<std::byte> serverReceived;
     std::thread server([&] {
-        TlsStream stream =
-            TlsStream::acceptServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem, cert.keyPem);
-        serverOk = stream.ok();
+        const auto stream = acceptTlsServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem(), cert.keyPem());
+        serverOk = stream->ok();
         if (serverOk)
         {
             std::array<std::byte, 5> buffer{};
-            if (stream.readExact(buffer))
+            if (stream->readExact(buffer))
                 serverReceived.assign(buffer.begin(), buffer.end());
-            (void)stream.writeAll(bytesOf("pong"));
+            (void)stream->writeAll(bytesOf("pong"));
         }
     });
 
-    TlsStream client =
-        TlsStream::connectClient(static_cast<std::uintptr_t>(fds[1]), "localhost", cert.certPem);
-    EXPECT_TRUE(client.ok());
-    if (client.ok())
+    const auto client = connectTlsClient(static_cast<std::uintptr_t>(fds[1]), "localhost", cert.certPem());
+    VIGINE_EXPECT_TRUE(client->ok());
+    if (client->ok())
     {
-        EXPECT_TRUE(client.writeAll(bytesOf("hello")));
+        VIGINE_EXPECT_TRUE(client->writeAll(bytesOf("hello")));
         std::array<std::byte, 4> reply{};
-        EXPECT_TRUE(client.readExact(reply));
-        EXPECT_EQ(std::string(reinterpret_cast<const char *>(reply.data()), reply.size()), "pong");
+        VIGINE_EXPECT_TRUE(client->readExact(reply));
+        VIGINE_EXPECT_EQ(std::string(reinterpret_cast<const char *>(reply.data()), reply.size()), "pong");
     }
 
     server.join();
-    EXPECT_TRUE(serverOk);
-    EXPECT_EQ(serverReceived, bytesOf("hello"));
+    VIGINE_EXPECT_TRUE(serverOk);
+    VIGINE_EXPECT_EQ(serverReceived, bytesOf("hello"));
 
     ::close(fds[0]);
     ::close(fds[1]);
 }
 
-TEST(Tls, ClientRejectsWrongHostname)
+VIGINE_TEST(Tls, ClientRejectsWrongHostname)
 {
     const SelfSignedCert cert = generateSelfSignedCert("localhost");
-    ASSERT_FALSE(cert.certPem.empty());
+    VIGINE_ASSERT_FALSE(cert.certPem().empty());
 
     int fds[2] = {-1, -1};
-    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    VIGINE_ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
     std::thread server([&] {
-        TlsStream stream =
-            TlsStream::acceptServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem, cert.keyPem);
-        (void)stream.ok(); // the client aborts on hostname mismatch
+        const auto stream = acceptTlsServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem(), cert.keyPem());
+        (void)stream->ok(); // the client aborts on hostname mismatch
     });
 
     // The cert's SAN is "localhost"; a different expected hostname must fail
     // verification rather than silently accept the chain-valid certificate.
-    TlsStream client = TlsStream::connectClient(static_cast<std::uintptr_t>(fds[1]),
-                                                "wrong.example", cert.certPem);
-    EXPECT_FALSE(client.ok());
+    const auto client = connectTlsClient(static_cast<std::uintptr_t>(fds[1]),
+                                                "wrong.example", cert.certPem());
+    VIGINE_EXPECT_FALSE(client->ok());
 
     ::close(fds[1]); // EOF so the server's SSL_accept unblocks
     server.join();
     ::close(fds[0]);
 }
 
-TEST(Tls, ClientRejectsEmptyHostname)
+VIGINE_TEST(Tls, ClientRejectsEmptyHostname)
 {
     const SelfSignedCert cert = generateSelfSignedCert("localhost");
-    ASSERT_FALSE(cert.certPem.empty());
+    VIGINE_ASSERT_FALSE(cert.certPem().empty());
 
     int fds[2] = {-1, -1};
-    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    VIGINE_ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
     // An empty expected hostname is refused client-side before any handshake,
     // so no server is needed (starting one would just block on a peer that
     // never connects).
-    TlsStream client =
-        TlsStream::connectClient(static_cast<std::uintptr_t>(fds[1]), "", cert.certPem);
-    EXPECT_FALSE(client.ok());
+    const auto client = connectTlsClient(static_cast<std::uintptr_t>(fds[1]), "", cert.certPem());
+    VIGINE_EXPECT_FALSE(client->ok());
 
     ::close(fds[0]);
     ::close(fds[1]);
@@ -218,28 +218,27 @@ void handshake(const Issued &leaf, const std::string &rootsFile, bool &ok, std::
     // A refused client closes early; the server's alert would then raise SIGPIPE.
     std::signal(SIGPIPE, SIG_IGN);
     int fds[2] = {-1, -1};
-    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    VIGINE_ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     std::thread server([&] {
-        TlsStream stream =
-            TlsStream::acceptServer(static_cast<std::uintptr_t>(fds[0]), leaf.certPem, leaf.keyPem);
-        (void)stream.ok();
+        const auto stream = acceptTlsServer(static_cast<std::uintptr_t>(fds[0]), leaf.certPem, leaf.keyPem);
+        (void)stream->ok();
     });
-    TlsStream client = TlsStream::connectClient(static_cast<std::uintptr_t>(fds[1]), "localhost",
+    const auto client = connectTlsClient(static_cast<std::uintptr_t>(fds[1]), "localhost",
                                                 {}, rootsFile);
-    ok               = client.ok();
-    reason           = client.failureReason();
+    ok               = client->ok();
+    reason           = client->failureReason();
     ::close(fds[1]);
     server.join();
     ::close(fds[0]);
 }
 } // namespace
 
-TEST(Tls, ClientTrustsALeafOnlyThroughTheGivenRoot)
+VIGINE_TEST(Tls, ClientTrustsALeafOnlyThroughTheGivenRoot)
 {
     Issued root;
     Issued leaf;
     issueChain(root, leaf);
-    const std::string rootFile = std::string(::testing::TempDir()) + "vigine-test-root.pem";
+    const std::string rootFile = (std::filesystem::temp_directory_path() / "vigine-test-root.pem").string();
     {
         std::ofstream out(rootFile);
         out << root.certPem;
@@ -248,17 +247,17 @@ TEST(Tls, ClientTrustsALeafOnlyThroughTheGivenRoot)
     bool ok = false;
     std::string reason;
     handshake(leaf, rootFile, ok, reason);
-    EXPECT_TRUE(ok) << reason;
+    VIGINE_EXPECT_TRUE(ok) << reason;
 
     // The system roots do not know the test root: the same server must now be refused,
     // with the verify reason.
     handshake(leaf, {}, ok, reason);
-    EXPECT_FALSE(ok);
-    EXPECT_NE(reason.find("certificate verification failed"), std::string::npos) << reason;
+    VIGINE_EXPECT_FALSE(ok);
+    VIGINE_EXPECT_NE(reason.find("certificate verification failed"), std::string::npos) << reason;
     std::remove(rootFile.c_str());
 }
 
-TEST(Tls, MissingRootsFileFailsWithThatReason)
+VIGINE_TEST(Tls, MissingRootsFileFailsWithThatReason)
 {
     Issued root;
     Issued leaf;
@@ -266,13 +265,13 @@ TEST(Tls, MissingRootsFileFailsWithThatReason)
     bool ok = true;
     std::string reason;
     handshake(leaf, "/nonexistent/vigine-roots.pem", ok, reason);
-    EXPECT_FALSE(ok);
-    EXPECT_NE(reason.find("trusted roots file"), std::string::npos) << reason;
+    VIGINE_EXPECT_FALSE(ok);
+    VIGINE_EXPECT_NE(reason.find("trusted roots file"), std::string::npos) << reason;
 }
 
-TEST(Tls, SystemRootsLoadAtLeastOne)
+VIGINE_TEST(Tls, SystemRootsLoadAtLeastOne)
 {
-    EXPECT_GT(TlsStream::systemRootCount(), 0U);
+    VIGINE_EXPECT_GT(tlsSystemRootCount(), 0U);
 }
 
 #endif

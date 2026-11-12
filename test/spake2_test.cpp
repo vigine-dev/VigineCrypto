@@ -4,7 +4,9 @@
 
 #include "vigine/crypto/spake2.h"
 
-#include <gtest/gtest.h>
+#include <vigine/unittest/unittest.h>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -58,119 +60,108 @@ constexpr std::string_view kConfirmationA =
 constexpr std::string_view kConfirmationB =
     "d3e2e547f1ae04f2dbdbf0fc4b79f8ecff2dff314b5d32fe9fcef2fb26dc459b";
 
-std::optional<Spake2> vectorSide(Spake2Role role, std::string_view scalarHex)
+std::optional<std::unique_ptr<ISpake2Session>> vectorSide(Spake2Role role, std::string_view scalarHex)
 {
     const std::vector<std::byte> scalar = fromHex(scalarHex);
-    return Spake2::beginWithScalar(
+    return beginSpake2WithScalar(
         role, fromHex(kW), bytesOf("server"), bytesOf("client"),
         std::span<const std::byte, kSpake2ScalarSize>{scalar.data(), kSpake2ScalarSize});
 }
 
 } // namespace
 
-TEST(Spake2, BothSidesOfTheRfcVectorComeOutByteForByte)
+VIGINE_TEST(Spake2, BothSidesOfTheRfcVectorComeOutByteForByte)
 {
     const auto sideA = vectorSide(Spake2Role::A, kX);
     const auto sideB = vectorSide(Spake2Role::B, kY);
-    ASSERT_TRUE(sideA && sideB);
-    EXPECT_EQ(asVector(sideA->share()), fromHex(kPA));
-    EXPECT_EQ(asVector(sideB->share()), fromHex(kPB));
+    VIGINE_ASSERT_TRUE(sideA && sideB);
+    VIGINE_EXPECT_EQ(asVector((*sideA)->share()), fromHex(kPA));
+    VIGINE_EXPECT_EQ(asVector((*sideB)->share()), fromHex(kPB));
 
-    const auto outcomeA = sideA->finish(sideB->share());
-    const auto outcomeB = sideB->finish(sideA->share());
-    ASSERT_TRUE(outcomeA && outcomeB);
+    const auto outcomeA = (*sideA)->finish((*sideB)->share());
+    const auto outcomeB = (*sideB)->finish((*sideA)->share());
+    VIGINE_ASSERT_TRUE(outcomeA && outcomeB);
     for (const Spake2Outcome *outcome : {&*outcomeA, &*outcomeB})
     {
-        EXPECT_EQ(asVector(outcome->sharedKey), fromHex(kKe));
-        EXPECT_EQ(asVector(outcome->confirmationA), fromHex(kConfirmationA));
-        EXPECT_EQ(asVector(outcome->confirmationB), fromHex(kConfirmationB));
+        VIGINE_EXPECT_EQ(asVector(outcome->sharedKey()), fromHex(kKe));
+        VIGINE_EXPECT_EQ(asVector(outcome->confirmationA()), fromHex(kConfirmationA));
+        VIGINE_EXPECT_EQ(asVector(outcome->confirmationB()), fromHex(kConfirmationB));
     }
 }
 
-TEST(Spake2, TheSameCodeAgreesAndADifferentOneDoesNot)
+VIGINE_TEST(Spake2, TheSameCodeAgreesAndADifferentOneDoesNot)
 {
     const auto identityA = bytesOf("map");
     const auto identityB = bytesOf("agent");
     const auto code      = spake2PasswordScalar("vigine.link.pairing", "734-218");
     const auto wrongCode = spake2PasswordScalar("vigine.link.pairing", "734-219");
 
-    const auto sideA     = Spake2::begin(Spake2Role::A, code, identityA, identityB);
-    const auto sideB     = Spake2::begin(Spake2Role::B, code, identityA, identityB);
-    const auto impostor  = Spake2::begin(Spake2Role::B, wrongCode, identityA, identityB);
-    ASSERT_TRUE(sideA && sideB && impostor);
-    EXPECT_NE(asVector(sideA->share()), asVector(sideB->share()));
+    const auto sideA     = beginSpake2(Spake2Role::A, code, identityA, identityB);
+    const auto sideB     = beginSpake2(Spake2Role::B, code, identityA, identityB);
+    const auto impostor  = beginSpake2(Spake2Role::B, wrongCode, identityA, identityB);
+    VIGINE_ASSERT_TRUE(sideA && sideB && impostor);
+    VIGINE_EXPECT_NE(asVector((*sideA)->share()), asVector((*sideB)->share()));
 
-    const auto outcomeA = sideA->finish(sideB->share());
-    const auto outcomeB = sideB->finish(sideA->share());
-    ASSERT_TRUE(outcomeA && outcomeB);
-    EXPECT_EQ(asVector(outcomeA->sharedKey), asVector(outcomeB->sharedKey));
-    EXPECT_TRUE(spake2ConfirmationsMatch(outcomeA->confirmationB, outcomeB->confirmationB));
-    EXPECT_TRUE(spake2ConfirmationsMatch(outcomeA->confirmationA, outcomeB->confirmationA));
+    const auto outcomeA = (*sideA)->finish((*sideB)->share());
+    const auto outcomeB = (*sideB)->finish((*sideA)->share());
+    VIGINE_ASSERT_TRUE(outcomeA && outcomeB);
+    VIGINE_EXPECT_EQ(asVector(outcomeA->sharedKey()), asVector(outcomeB->sharedKey()));
+    VIGINE_EXPECT_TRUE(spake2ConfirmationsMatch(outcomeA->confirmationB(), outcomeB->confirmationB()));
+    VIGINE_EXPECT_TRUE(spake2ConfirmationsMatch(outcomeA->confirmationA(), outcomeB->confirmationA()));
 
-    const auto withImpostor = sideA->finish(impostor->share());
-    const auto impostorSide = impostor->finish(sideA->share());
-    ASSERT_TRUE(withImpostor && impostorSide);
-    EXPECT_FALSE(spake2ConfirmationsMatch(withImpostor->confirmationB, impostorSide->confirmationB))
+    const auto withImpostor = (*sideA)->finish((*impostor)->share());
+    const auto impostorSide = (*impostor)->finish((*sideA)->share());
+    VIGINE_ASSERT_TRUE(withImpostor && impostorSide);
+    VIGINE_EXPECT_FALSE(spake2ConfirmationsMatch(withImpostor->confirmationB(), impostorSide->confirmationB()))
         << "a different code was confirmed";
-    EXPECT_NE(asVector(withImpostor->sharedKey), asVector(impostorSide->sharedKey));
+    VIGINE_EXPECT_NE(asVector(withImpostor->sharedKey()), asVector(impostorSide->sharedKey()));
 }
 
 // The identities are part of what is proved: a party named differently by its peer is not
 // confirmed.
-TEST(Spake2, AnExchangeBetweenOtherIdentitiesIsNotConfirmed)
+VIGINE_TEST(Spake2, AnExchangeBetweenOtherIdentitiesIsNotConfirmed)
 {
     const auto code  = spake2PasswordScalar("vigine.link.pairing", "734-218");
-    const auto sideA = Spake2::begin(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
-    const auto sideB = Spake2::begin(Spake2Role::B, code, bytesOf("map"), bytesOf("someone else"));
-    ASSERT_TRUE(sideA && sideB);
-    const auto outcomeA = sideA->finish(sideB->share());
-    const auto outcomeB = sideB->finish(sideA->share());
-    ASSERT_TRUE(outcomeA && outcomeB);
-    EXPECT_FALSE(spake2ConfirmationsMatch(outcomeA->confirmationB, outcomeB->confirmationB));
+    const auto sideA = beginSpake2(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
+    const auto sideB = beginSpake2(Spake2Role::B, code, bytesOf("map"), bytesOf("someone else"));
+    VIGINE_ASSERT_TRUE(sideA && sideB);
+    const auto outcomeA = (*sideA)->finish((*sideB)->share());
+    const auto outcomeB = (*sideB)->finish((*sideA)->share());
+    VIGINE_ASSERT_TRUE(outcomeA && outcomeB);
+    VIGINE_EXPECT_FALSE(spake2ConfirmationsMatch(outcomeA->confirmationB(), outcomeB->confirmationB()));
 }
 
-TEST(Spake2, BytesThatAreNoPointOfTheCurveAreRefused)
+VIGINE_TEST(Spake2, BytesThatAreNoPointOfTheCurveAreRefused)
 {
     const auto code  = spake2PasswordScalar("vigine.link.pairing", "734-218");
-    const auto sideA = Spake2::begin(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
-    ASSERT_TRUE(sideA);
+    const auto sideA = beginSpake2(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
+    VIGINE_ASSERT_TRUE(sideA);
     std::vector<std::byte> notAPoint(kSpake2ShareSize, std::byte{0x01});
     notAPoint[0] = std::byte{0x04};
-    EXPECT_FALSE(sideA->finish(notAPoint).has_value());
-    EXPECT_FALSE(sideA->finish(std::vector<std::byte>{}).has_value());
-    EXPECT_FALSE(sideA->finish(std::vector<std::byte>{std::byte{0x00}}).has_value())
+    VIGINE_EXPECT_FALSE((*sideA)->finish(notAPoint).has_value());
+    VIGINE_EXPECT_FALSE((*sideA)->finish(std::vector<std::byte>{}).has_value());
+    VIGINE_EXPECT_FALSE((*sideA)->finish(std::vector<std::byte>{std::byte{0x00}}).has_value())
         << "the point at infinity was taken";
 }
 
-TEST(Spake2, AZeroPasswordScalarIsRefused)
+VIGINE_TEST(Spake2, AZeroPasswordScalarIsRefused)
 {
     const std::vector<std::byte> zero(kSpake2ScalarSize, std::byte{0});
-    EXPECT_FALSE(Spake2::begin(Spake2Role::A, zero, bytesOf("map"), bytesOf("agent")).has_value());
+    VIGINE_EXPECT_FALSE(beginSpake2(Spake2Role::A, zero, bytesOf("map"), bytesOf("agent")).has_value());
 }
 
-TEST(Spake2, AReflectedShareIsRefused)
+VIGINE_TEST(Spake2, AReflectedShareIsRefused)
 {
     const auto code  = spake2PasswordScalar("vigine.link.pairing", "734-218");
-    const auto sideA = Spake2::begin(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
-    ASSERT_TRUE(sideA);
-    EXPECT_FALSE(sideA->finish(sideA->share()).has_value());
+    const auto sideA = beginSpake2(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
+    VIGINE_ASSERT_TRUE(sideA);
+    VIGINE_EXPECT_FALSE((*sideA)->finish((*sideA)->share()).has_value());
 }
 
-TEST(Spake2, AMovedFromExchangeRefusesToFinish)
+VIGINE_TEST(Spake2, ACodeMakesADifferentScalarForADifferentPurpose)
 {
-    const auto code = spake2PasswordScalar("vigine.link.pairing", "734-218");
-    auto sideA      = Spake2::begin(Spake2Role::A, code, bytesOf("map"), bytesOf("agent"));
-    auto sideB      = Spake2::begin(Spake2Role::B, code, bytesOf("map"), bytesOf("agent"));
-    ASSERT_TRUE(sideA && sideB);
-    const Spake2 taken{std::move(*sideA)};
-    EXPECT_FALSE(sideA->finish(sideB->share()).has_value());
-    EXPECT_TRUE(taken.finish(sideB->share()).has_value());
-}
-
-TEST(Spake2, ACodeMakesADifferentScalarForADifferentPurpose)
-{
-    EXPECT_NE(asVector(spake2PasswordScalar("vigine.link.pairing", "734-218")),
+    VIGINE_EXPECT_NE(asVector(spake2PasswordScalar("vigine.link.pairing", "734-218")),
               asVector(spake2PasswordScalar("another.purpose", "734-218")));
-    EXPECT_EQ(asVector(spake2PasswordScalar("vigine.link.pairing", "734-218")),
+    VIGINE_EXPECT_EQ(asVector(spake2PasswordScalar("vigine.link.pairing", "734-218")),
               asVector(spake2PasswordScalar("vigine.link.pairing", "734-218")));
 }

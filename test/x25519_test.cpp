@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
-#include <gtest/gtest.h>
+#include <vigine/unittest/unittest.h>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -39,23 +39,23 @@ constexpr std::string_view kSharedSecret =
     "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742";
 } // namespace
 
-TEST(X25519, DerivesPublicKeyFromScalarPerRfc7748)
+VIGINE_TEST(X25519, DerivesPublicKeyFromScalarPerRfc7748)
 {
     const std::array<std::byte, 32> alicePrivate = fromHex32(kAlicePrivate);
     const X25519KeyPair alice =
         x25519KeyPairFromScalar(std::span<const std::byte, 32>(alicePrivate));
     const std::array<std::byte, 32> aliceExpected = fromHex32(kAlicePublic);
-    const auto aliceDerived                       = alice.publicKey.bytes();
-    EXPECT_TRUE(std::equal(aliceDerived.begin(), aliceDerived.end(), aliceExpected.begin()));
+    const auto aliceDerived                       = alice.publicKey().bytes();
+    VIGINE_EXPECT_TRUE(std::equal(aliceDerived.begin(), aliceDerived.end(), aliceExpected.begin()));
 
     const std::array<std::byte, 32> bobPrivate = fromHex32(kBobPrivate);
     const X25519KeyPair bob = x25519KeyPairFromScalar(std::span<const std::byte, 32>(bobPrivate));
     const std::array<std::byte, 32> bobExpected = fromHex32(kBobPublic);
-    const auto bobDerived                       = bob.publicKey.bytes();
-    EXPECT_TRUE(std::equal(bobDerived.begin(), bobDerived.end(), bobExpected.begin()));
+    const auto bobDerived                       = bob.publicKey().bytes();
+    VIGINE_EXPECT_TRUE(std::equal(bobDerived.begin(), bobDerived.end(), bobExpected.begin()));
 }
 
-TEST(X25519, SharedSecretMatchesRfc7748AndIsSymmetric)
+VIGINE_TEST(X25519, SharedSecretMatchesRfc7748AndIsSymmetric)
 {
     const std::array<std::byte, 32> alicePrivate = fromHex32(kAlicePrivate);
     const std::array<std::byte, 32> bobPrivate   = fromHex32(kBobPrivate);
@@ -64,32 +64,32 @@ TEST(X25519, SharedSecretMatchesRfc7748AndIsSymmetric)
     const X25519KeyPair bob = x25519KeyPairFromScalar(std::span<const std::byte, 32>(bobPrivate));
     const std::array<std::byte, 32> expected = fromHex32(kSharedSecret);
 
-    const auto aliceView                     = x25519SharedSecret(alice.secretKey, bob.publicKey);
-    ASSERT_TRUE(aliceView.has_value());
-    EXPECT_EQ(*aliceView, expected);
+    const auto aliceView                     = x25519SharedSecret(alice.secretKey(), bob.publicKey());
+    VIGINE_ASSERT_TRUE(aliceView.has_value());
+    VIGINE_EXPECT_EQ(*aliceView, expected);
 
-    const auto bobView = x25519SharedSecret(bob.secretKey, alice.publicKey);
-    ASSERT_TRUE(bobView.has_value());
-    EXPECT_EQ(*bobView, expected); // both sides agree on the same secret
+    const auto bobView = x25519SharedSecret(bob.secretKey(), alice.publicKey());
+    VIGINE_ASSERT_TRUE(bobView.has_value());
+    VIGINE_EXPECT_EQ(*bobView, expected); // both sides agree on the same secret
 }
 
-TEST(X25519, FreshKeyPairsAgreeOnAsharedSecret)
+VIGINE_TEST(X25519, FreshKeyPairsAgreeOnAsharedSecret)
 {
     const X25519KeyPair first  = generateX25519KeyPair();
     const X25519KeyPair second = generateX25519KeyPair();
 
-    const auto firstView       = x25519SharedSecret(first.secretKey, second.publicKey);
-    const auto secondView      = x25519SharedSecret(second.secretKey, first.publicKey);
-    ASSERT_TRUE(firstView.has_value());
-    ASSERT_TRUE(secondView.has_value());
-    EXPECT_EQ(*firstView, *secondView);
+    const auto firstView       = x25519SharedSecret(first.secretKey(), second.publicKey());
+    const auto secondView      = x25519SharedSecret(second.secretKey(), first.publicKey());
+    VIGINE_ASSERT_TRUE(firstView.has_value());
+    VIGINE_ASSERT_TRUE(secondView.has_value());
+    VIGINE_EXPECT_EQ(*firstView, *secondView);
 }
 
-TEST(X25519, RejectsLowOrderPeerPoint)
+VIGINE_TEST(X25519, RejectsLowOrderPeerPoint)
 {
     const X25519KeyPair us = generateX25519KeyPair();
     std::array<std::byte, 32> allZero{}; // the identity is a low-order point
     const X25519PublicKey lowOrder{std::span<const std::byte, 32>(allZero)};
 
-    EXPECT_FALSE(x25519SharedSecret(us.secretKey, lowOrder).has_value());
+    VIGINE_EXPECT_FALSE(x25519SharedSecret(us.secretKey(), lowOrder).has_value());
 }

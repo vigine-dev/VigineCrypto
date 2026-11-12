@@ -1,7 +1,7 @@
 #include "vigine/crypto/compare.h"
 
 #include <cstddef>
-#include <gtest/gtest.h>
+#include <vigine/unittest/unittest.h>
 #include <vector>
 
 namespace
@@ -17,29 +17,29 @@ std::vector<std::byte> sampleBytes(std::size_t size)
 
 } // namespace
 
-TEST(CompareTest, EqualSpansAreEqual)
+VIGINE_TEST(CompareTest, EqualSpansAreEqual)
 {
     auto left  = sampleBytes(32);
     auto right = sampleBytes(32);
-    EXPECT_TRUE(vigine::crypto::equalConstantTime(left, right));
+    VIGINE_EXPECT_TRUE(vigine::crypto::equalConstantTime(left, right));
 }
 
-TEST(CompareTest, DifferenceInLastByteIsUnequal)
+VIGINE_TEST(CompareTest, DifferenceInLastByteIsUnequal)
 {
     auto left  = sampleBytes(32);
     auto right = sampleBytes(32);
     right.back() ^= std::byte{1};
-    EXPECT_FALSE(vigine::crypto::equalConstantTime(left, right));
+    VIGINE_EXPECT_FALSE(vigine::crypto::equalConstantTime(left, right));
 }
 
-TEST(CompareTest, DifferentSizesAreUnequal)
+VIGINE_TEST(CompareTest, DifferentSizesAreUnequal)
 {
     auto left  = sampleBytes(32);
     auto right = sampleBytes(31);
-    EXPECT_FALSE(vigine::crypto::equalConstantTime(left, right));
+    VIGINE_EXPECT_FALSE(vigine::crypto::equalConstantTime(left, right));
 }
 
-TEST(CompareTest, TwoEmptySpansAreEqual)
+VIGINE_TEST(CompareTest, TwoEmptySpansAreEqual)
 {
-    EXPECT_TRUE(vigine::crypto::equalConstantTime({}, {}));
+    VIGINE_EXPECT_TRUE(vigine::crypto::equalConstantTime({}, {}));
 }
