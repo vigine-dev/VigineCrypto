@@ -17,10 +17,16 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <sys/socket.h>
 #include <thread>
-#include <unistd.h>
 #include <vector>
+
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 using vigine::crypto::generateSelfSignedCert;
 using vigine::crypto::SelfSignedCert;
@@ -37,6 +43,75 @@ std::vector<std::byte> bytesOf(std::string_view text)
         out.push_back(static_cast<std::byte>(character));
     return out;
 }
+
+struct SocketPair
+{
+    std::uintptr_t first  = 0;
+    std::uintptr_t second = 0;
+    bool connected        = false;
+};
+
+#if defined(_WIN32)
+SocketPair makeSocketPair()
+{
+    static const bool winsockStarted = [] {
+        WSADATA data;
+        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }();
+    SocketPair pair;
+    if (!winsockStarted)
+        return pair;
+
+    SOCKET listener = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listener == INVALID_SOCKET)
+        return pair;
+    sockaddr_in address{};
+    address.sin_family      = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port        = 0;
+    int addressSize         = sizeof(address);
+    SOCKET client           = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    SOCKET accepted         = INVALID_SOCKET;
+    if (client != INVALID_SOCKET && ::bind(listener, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0
+        && ::listen(listener, 1) == 0
+        && ::getsockname(listener, reinterpret_cast<sockaddr *>(&address), &addressSize) == 0
+        && ::connect(client, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0)
+        accepted = ::accept(listener, nullptr, nullptr);
+    ::closesocket(listener);
+    if (accepted == INVALID_SOCKET)
+    {
+        if (client != INVALID_SOCKET)
+            ::closesocket(client);
+        return pair;
+    }
+    pair.first     = static_cast<std::uintptr_t>(accepted);
+    pair.second    = static_cast<std::uintptr_t>(client);
+    pair.connected = true;
+    return pair;
+}
+
+void closeSocket(std::uintptr_t handle)
+{
+    ::closesocket(static_cast<SOCKET>(handle));
+}
+#else
+SocketPair makeSocketPair()
+{
+    int descriptors[2] = {-1, -1};
+    SocketPair pair;
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors) != 0)
+        return pair;
+    pair.first     = static_cast<std::uintptr_t>(descriptors[0]);
+    pair.second    = static_cast<std::uintptr_t>(descriptors[1]);
+    pair.connected = true;
+    return pair;
+}
+
+void closeSocket(std::uintptr_t handle)
+{
+    ::close(static_cast<int>(handle));
+}
+#endif
 } // namespace
 
 VIGINE_TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
@@ -45,13 +120,13 @@ VIGINE_TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
     VIGINE_ASSERT_FALSE(cert.certPem().empty());
     VIGINE_ASSERT_FALSE(cert.keyPem().empty());
 
-    int fds[2] = {-1, -1};
-    VIGINE_ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    const SocketPair sockets = makeSocketPair();
+    VIGINE_ASSERT_TRUE(sockets.connected);
 
     bool serverOk = false;
     std::vector<std::byte> serverReceived;
     std::thread server([&] {
-        const auto stream = acceptTlsServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem(), cert.keyPem());
+        const auto stream = acceptTlsServer(sockets.first, cert.certPem(), cert.keyPem());
         serverOk = stream->ok();
         if (serverOk)
         {
@@ -62,7 +137,7 @@ VIGINE_TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
         }
     });
 
-    const auto client = connectTlsClient(static_cast<std::uintptr_t>(fds[1]), "localhost", cert.certPem());
+    const auto client = connectTlsClient(sockets.second, "localhost", cert.certPem());
     VIGINE_EXPECT_TRUE(client->ok());
     if (client->ok())
     {
@@ -76,8 +151,8 @@ VIGINE_TEST(Tls, ClientServerRoundTripWithSelfSignedCert)
     VIGINE_EXPECT_TRUE(serverOk);
     VIGINE_EXPECT_EQ(serverReceived, bytesOf("hello"));
 
-    ::close(fds[0]);
-    ::close(fds[1]);
+    closeSocket(sockets.first);
+    closeSocket(sockets.second);
 }
 
 VIGINE_TEST(Tls, ClientRejectsWrongHostname)
@@ -85,23 +160,23 @@ VIGINE_TEST(Tls, ClientRejectsWrongHostname)
     const SelfSignedCert cert = generateSelfSignedCert("localhost");
     VIGINE_ASSERT_FALSE(cert.certPem().empty());
 
-    int fds[2] = {-1, -1};
-    VIGINE_ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    const SocketPair sockets = makeSocketPair();
+    VIGINE_ASSERT_TRUE(sockets.connected);
 
     std::thread server([&] {
-        const auto stream = acceptTlsServer(static_cast<std::uintptr_t>(fds[0]), cert.certPem(), cert.keyPem());
+        const auto stream = acceptTlsServer(sockets.first, cert.certPem(), cert.keyPem());
         (void)stream->ok(); // the client aborts on hostname mismatch
     });
 
     // The cert's SAN is "localhost"; a different expected hostname must fail
     // verification rather than silently accept the chain-valid certificate.
-    const auto client = connectTlsClient(static_cast<std::uintptr_t>(fds[1]),
+    const auto client = connectTlsClient(sockets.second,
                                                 "wrong.example", cert.certPem());
     VIGINE_EXPECT_FALSE(client->ok());
 
-    ::close(fds[1]); // EOF so the server's SSL_accept unblocks
+    closeSocket(sockets.second); // EOF so the server's SSL_accept unblocks
     server.join();
-    ::close(fds[0]);
+    closeSocket(sockets.first);
 }
 
 VIGINE_TEST(Tls, ClientRejectsEmptyHostname)
@@ -109,17 +184,17 @@ VIGINE_TEST(Tls, ClientRejectsEmptyHostname)
     const SelfSignedCert cert = generateSelfSignedCert("localhost");
     VIGINE_ASSERT_FALSE(cert.certPem().empty());
 
-    int fds[2] = {-1, -1};
-    VIGINE_ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    const SocketPair sockets = makeSocketPair();
+    VIGINE_ASSERT_TRUE(sockets.connected);
 
     // An empty expected hostname is refused client-side before any handshake,
     // so no server is needed (starting one would just block on a peer that
     // never connects).
-    const auto client = connectTlsClient(static_cast<std::uintptr_t>(fds[1]), "", cert.certPem());
+    const auto client = connectTlsClient(sockets.second, "", cert.certPem());
     VIGINE_EXPECT_FALSE(client->ok());
 
-    ::close(fds[0]);
-    ::close(fds[1]);
+    closeSocket(sockets.first);
+    closeSocket(sockets.second);
 }
 
 namespace
@@ -212,20 +287,22 @@ void issueChain(Issued &root, Issued &leaf)
 void handshake(const Issued &leaf, const std::string &rootsFile, bool &ok, std::string &reason)
 {
     // A refused client closes early; the server's alert would then raise SIGPIPE.
+#if !defined(_WIN32)
     std::signal(SIGPIPE, SIG_IGN);
-    int fds[2] = {-1, -1};
-    VIGINE_ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+#endif
+    const SocketPair sockets = makeSocketPair();
+    VIGINE_ASSERT_TRUE(sockets.connected);
     std::thread server([&] {
-        const auto stream = acceptTlsServer(static_cast<std::uintptr_t>(fds[0]), leaf.certPem, leaf.keyPem);
+        const auto stream = acceptTlsServer(sockets.first, leaf.certPem, leaf.keyPem);
         (void)stream->ok();
     });
-    const auto client = connectTlsClient(static_cast<std::uintptr_t>(fds[1]), "localhost",
+    const auto client = connectTlsClient(sockets.second, "localhost",
                                                 {}, rootsFile);
     ok               = client->ok();
     reason           = client->failureReason();
-    ::close(fds[1]);
+    closeSocket(sockets.second);
     server.join();
-    ::close(fds[0]);
+    closeSocket(sockets.first);
 }
 } // namespace
 
