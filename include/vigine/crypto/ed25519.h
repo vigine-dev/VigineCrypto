@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <functional>
 #include <span>
+#include <utility>
+#include "vigine/crypto/viginecrypto_export.h"
 
 namespace vigine::crypto
 {
@@ -12,10 +14,10 @@ inline constexpr std::size_t kEd25519PublicKeySize = 32;
 inline constexpr std::size_t kEd25519SeedSize      = 32;
 inline constexpr std::size_t kEd25519SignatureSize = 64;
 
-struct Ed25519KeyPair;
+class Ed25519KeyPair;
 
 // 32-byte Ed25519 public key. Not secret, so it is freely copyable.
-class Ed25519PublicKey
+class VIGINECRYPTO_API Ed25519PublicKey
 {
   public:
     explicit Ed25519PublicKey(std::span<const std::byte, kEd25519PublicKeySize> bytes);
@@ -28,7 +30,7 @@ class Ed25519PublicKey
 // 32-byte Ed25519 private seed. Move-only and zeroed on destruction; the raw
 // bytes are reachable only inside withBytes, so they never survive in a copy
 // or escape by pointer.
-class Ed25519SecretKey
+class VIGINECRYPTO_API Ed25519SecretKey
 {
   public:
     Ed25519SecretKey(const Ed25519SecretKey &)            = delete;
@@ -43,29 +45,39 @@ class Ed25519SecretKey
   private:
     explicit Ed25519SecretKey(std::span<const std::byte, kEd25519SeedSize> seed);
 
-    friend struct Ed25519KeyPair;
+    friend class Ed25519KeyPair;
     friend Ed25519KeyPair generateKeyPair();
     friend Ed25519KeyPair keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed);
 
     std::array<std::byte, kEd25519SeedSize> _bytes{};
 };
 
-struct Ed25519KeyPair
+class Ed25519KeyPair
 {
-    Ed25519PublicKey publicKey;
-    Ed25519SecretKey secretKey;
+  public:
+    Ed25519KeyPair(Ed25519PublicKey publicKey, Ed25519SecretKey secretKey)
+        : _publicKey(std::move(publicKey)), _secretKey(std::move(secretKey))
+    {
+    }
+
+    [[nodiscard]] const Ed25519PublicKey &publicKey() const { return _publicKey; }
+    [[nodiscard]] const Ed25519SecretKey &secretKey() const { return _secretKey; }
+
+  private:
+    Ed25519PublicKey _publicKey;
+    Ed25519SecretKey _secretKey;
 };
 
-[[nodiscard]] Ed25519KeyPair generateKeyPair();
+[[nodiscard]] VIGINECRYPTO_API Ed25519KeyPair generateKeyPair();
 
 // Deterministically derive a key pair from a 32-byte seed (an RFC 8032 secret
 // key, or a seed restored from secure storage). Same seed -> same keys.
-[[nodiscard]] Ed25519KeyPair keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed);
+[[nodiscard]] VIGINECRYPTO_API Ed25519KeyPair keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed);
 
-[[nodiscard]] std::array<std::byte, kEd25519SignatureSize> sign(const Ed25519SecretKey &secretKey,
+[[nodiscard]] VIGINECRYPTO_API std::array<std::byte, kEd25519SignatureSize> sign(const Ed25519SecretKey &secretKey,
                                                                 std::span<const std::byte> message);
 
-[[nodiscard]] bool verify(const Ed25519PublicKey &publicKey, std::span<const std::byte> message,
+[[nodiscard]] VIGINECRYPTO_API bool verify(const Ed25519PublicKey &publicKey, std::span<const std::byte> message,
                           std::span<const std::byte, kEd25519SignatureSize> signature);
 
 } // namespace vigine::crypto

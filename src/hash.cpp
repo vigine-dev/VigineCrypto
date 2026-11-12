@@ -17,31 +17,32 @@ std::array<std::byte, kBlake3HashSize> blake3(std::span<const std::byte> input)
     return out;
 }
 
-struct Blake3Hasher::State
+namespace
 {
-    blake3_hasher hasher;
+
+class Blake3Hasher final : public IHasher
+{
+  public:
+    Blake3Hasher() { blake3_hasher_init(&_hasher); }
+
+    void update(std::span<const std::byte> input) override
+    {
+        blake3_hasher_update(&_hasher, input.data(), input.size());
+    }
+
+    std::array<std::byte, kBlake3HashSize> finalize() const override
+    {
+        std::array<std::byte, kBlake3HashSize> out{};
+        blake3_hasher_finalize(&_hasher, reinterpret_cast<std::uint8_t *>(out.data()), out.size());
+        return out;
+    }
+
+  private:
+    blake3_hasher _hasher;
 };
 
-Blake3Hasher::Blake3Hasher() : _state(std::make_unique<State>())
-{
-    blake3_hasher_init(&_state->hasher);
-}
+} // namespace
 
-Blake3Hasher::~Blake3Hasher()                                   = default;
-Blake3Hasher::Blake3Hasher(Blake3Hasher &&) noexcept            = default;
-Blake3Hasher &Blake3Hasher::operator=(Blake3Hasher &&) noexcept = default;
-
-void Blake3Hasher::update(std::span<const std::byte> input)
-{
-    blake3_hasher_update(&_state->hasher, input.data(), input.size());
-}
-
-std::array<std::byte, kBlake3HashSize> Blake3Hasher::finalize() const
-{
-    std::array<std::byte, kBlake3HashSize> out{};
-    blake3_hasher_finalize(&_state->hasher, reinterpret_cast<std::uint8_t *>(out.data()),
-                           out.size());
-    return out;
-}
+std::unique_ptr<IHasher> createBlake3Hasher() { return std::make_unique<Blake3Hasher>(); }
 
 } // namespace vigine::crypto

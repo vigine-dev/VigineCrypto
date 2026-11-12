@@ -7,6 +7,8 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <utility>
+#include "vigine/crypto/viginecrypto_export.h"
 
 // SPAKE2 (RFC 9382) over P-256 with SHA-256, HKDF and HMAC: two parties that
 // share a short code -- one the owner reads on one machine and types on the
@@ -32,58 +34,71 @@ enum class Spake2Role : std::uint8_t
 /* What both sides hold when the exchange went through: the shared key and the
    confirmation each side owes the other. A side sends its own confirmation and
    accepts the peer only when the peer's matches (spake2ConfirmationsMatch). */
-struct Spake2Outcome
-{
-    std::array<std::byte, kSpake2KeySize> sharedKey{};
-    std::array<std::byte, kSpake2ConfirmationSize> confirmationA{};
-    std::array<std::byte, kSpake2ConfirmationSize> confirmationB{};
-};
-
-// One side of one exchange. Move-only; its secret scalar is wiped when it goes.
-class Spake2
+class Spake2Outcome
 {
   public:
-    /* A fresh exchange: `password` is the shared scalar (spake2PasswordScalar),
-       the identities name A and B as both sides know them. Nothing when the
-       password is zero or not a scalar of the group. */
-    [[nodiscard]] static std::optional<Spake2> begin(Spake2Role role,
-                                                     std::span<const std::byte> password,
-                                                     std::span<const std::byte> identityA,
-                                                     std::span<const std::byte> identityB);
+    Spake2Outcome(std::array<std::byte, kSpake2KeySize> sharedKey,
+                  std::array<std::byte, kSpake2ConfirmationSize> confirmationA,
+                  std::array<std::byte, kSpake2ConfirmationSize> confirmationB)
+        : _sharedKey(sharedKey), _confirmationA(confirmationA), _confirmationB(confirmationB)
+    {
+    }
 
-    // The same with a given secret scalar instead of a fresh one: for test vectors only.
-    [[nodiscard]] static std::optional<Spake2>
-    beginWithScalar(Spake2Role role, std::span<const std::byte> password,
-                    std::span<const std::byte> identityA, std::span<const std::byte> identityB,
-                    std::span<const std::byte, kSpake2ScalarSize> scalar);
-
-    // What this side sends the other: pA for A, pB for B.
-    [[nodiscard]] std::span<const std::byte, kSpake2ShareSize> share() const;
-
-    /* The outcome for the peer's share; nothing when it is not a point of the curve, is the
-       identity, equals this side's own share, or when this exchange was moved from. */
-    [[nodiscard]] std::optional<Spake2Outcome> finish(std::span<const std::byte> peerShare) const;
-
-    Spake2(Spake2 &&) noexcept;
-    Spake2 &operator=(Spake2 &&) noexcept;
-    Spake2(const Spake2 &)            = delete;
-    Spake2 &operator=(const Spake2 &) = delete;
-    ~Spake2();
+    [[nodiscard]] const std::array<std::byte, kSpake2KeySize> &sharedKey() const
+    {
+        return _sharedKey;
+    }
+    [[nodiscard]] const std::array<std::byte, kSpake2ConfirmationSize> &confirmationA() const
+    {
+        return _confirmationA;
+    }
+    [[nodiscard]] const std::array<std::byte, kSpake2ConfirmationSize> &confirmationB() const
+    {
+        return _confirmationB;
+    }
 
   private:
-    struct State;
-    explicit Spake2(std::unique_ptr<State> state);
-    std::unique_ptr<State> _state;
+    std::array<std::byte, kSpake2KeySize> _sharedKey{};
+    std::array<std::byte, kSpake2ConfirmationSize> _confirmationA{};
+    std::array<std::byte, kSpake2ConfirmationSize> _confirmationB{};
 };
+
+// One side of one exchange; its secret scalar is wiped when it goes.
+class ISpake2Session
+{
+  public:
+    virtual ~ISpake2Session() = default;
+
+    // What this side sends the other: pA for A, pB for B.
+    [[nodiscard]] virtual std::span<const std::byte, kSpake2ShareSize> share() const = 0;
+
+    /* The outcome for the peer's share; nothing when it is not a point of the curve, is the
+       identity, or equals this side's own share. */
+    [[nodiscard]] virtual std::optional<Spake2Outcome>
+    finish(std::span<const std::byte> peerShare) const = 0;
+};
+
+/* A fresh exchange: `password` is the shared scalar (spake2PasswordScalar), the identities name
+   A and B as both sides know them. Nothing when the password is zero or not a scalar of the
+   group. */
+[[nodiscard]] VIGINECRYPTO_API std::optional<std::unique_ptr<ISpake2Session>>
+beginSpake2(Spake2Role role, std::span<const std::byte> password,
+            std::span<const std::byte> identityA, std::span<const std::byte> identityB);
+
+// The same with a given secret scalar instead of a fresh one: for test vectors only.
+[[nodiscard]] VIGINECRYPTO_API std::optional<std::unique_ptr<ISpake2Session>>
+beginSpake2WithScalar(Spake2Role role, std::span<const std::byte> password,
+                      std::span<const std::byte> identityA, std::span<const std::byte> identityB,
+                      std::span<const std::byte, kSpake2ScalarSize> scalar);
 
 /* The shared scalar for a short code: SHA-256 over `domain`, a zero byte and
    the code, reduced into the group. `domain` names what the code is for, so a
    code read for one purpose is no scalar for another. */
-[[nodiscard]] std::array<std::byte, kSpake2ScalarSize> spake2PasswordScalar(std::string_view domain,
+[[nodiscard]] VIGINECRYPTO_API std::array<std::byte, kSpake2ScalarSize> spake2PasswordScalar(std::string_view domain,
                                                                             std::string_view code);
 
 // Two confirmations compared in constant time.
-[[nodiscard]] bool
+[[nodiscard]] VIGINECRYPTO_API bool
 spake2ConfirmationsMatch(std::span<const std::byte, kSpake2ConfirmationSize> left,
                          std::span<const std::byte, kSpake2ConfirmationSize> right);
 

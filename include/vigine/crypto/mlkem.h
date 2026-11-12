@@ -5,6 +5,8 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <utility>
+#include "vigine/crypto/viginecrypto_export.h"
 
 namespace vigine::crypto
 {
@@ -15,10 +17,10 @@ inline constexpr std::size_t kMlKem768SecretKeySize  = 2400;
 inline constexpr std::size_t kMlKem768CiphertextSize = 1088;
 inline constexpr std::size_t kMlKemSharedSecretSize  = 32;
 
-struct MlKemKeyPair;
+class MlKemKeyPair;
 
 // The encapsulation key: not secret, freely copyable.
-class MlKemPublicKey
+class VIGINECRYPTO_API MlKemPublicKey
 {
   public:
     explicit MlKemPublicKey(std::span<const std::byte, kMlKem768PublicKeySize> bytes);
@@ -30,7 +32,7 @@ class MlKemPublicKey
 
 // The decapsulation key: move-only, zeroed on destruction, its bytes reachable only inside
 // withBytes.
-class MlKemSecretKey
+class VIGINECRYPTO_API MlKemSecretKey
 {
   public:
     MlKemSecretKey(const MlKemSecretKey &)            = delete;
@@ -50,33 +52,60 @@ class MlKemSecretKey
     std::array<std::byte, kMlKem768SecretKeySize> _bytes{};
 };
 
-struct MlKemKeyPair
+class MlKemKeyPair
 {
-    MlKemPublicKey publicKey;
-    MlKemSecretKey secretKey;
+  public:
+    MlKemKeyPair(MlKemPublicKey publicKey, MlKemSecretKey secretKey)
+        : _publicKey(std::move(publicKey)), _secretKey(std::move(secretKey))
+    {
+    }
+
+    [[nodiscard]] const MlKemPublicKey &publicKey() const { return _publicKey; }
+    [[nodiscard]] const MlKemSecretKey &secretKey() const { return _secretKey; }
+
+  private:
+    MlKemPublicKey _publicKey;
+    MlKemSecretKey _secretKey;
 };
 
 // What encapsulating to a peer's key gives: the ciphertext to send it, and the secret both now
 // hold.
-struct MlKemEncapsulation
+class MlKemEncapsulation
 {
-    std::array<std::byte, kMlKem768CiphertextSize> ciphertext{};
-    std::array<std::byte, kMlKemSharedSecretSize> sharedSecret{};
+  public:
+    MlKemEncapsulation(std::array<std::byte, kMlKem768CiphertextSize> ciphertext,
+                       std::array<std::byte, kMlKemSharedSecretSize> sharedSecret)
+        : _ciphertext(ciphertext), _sharedSecret(sharedSecret)
+    {
+    }
+
+    [[nodiscard]] const std::array<std::byte, kMlKem768CiphertextSize> &ciphertext() const
+    {
+        return _ciphertext;
+    }
+    [[nodiscard]] const std::array<std::byte, kMlKemSharedSecretSize> &sharedSecret() const
+    {
+        return _sharedSecret;
+    }
+
+  private:
+    std::array<std::byte, kMlKem768CiphertextSize> _ciphertext{};
+    std::array<std::byte, kMlKemSharedSecretSize> _sharedSecret{};
 };
 
-[[nodiscard]] MlKemKeyPair generateMlKemKeyPair();
+[[nodiscard]] VIGINECRYPTO_API MlKemKeyPair generateMlKemKeyPair();
 
 /* A fresh shared secret for the holder of `peerPublicKey`, and the ciphertext
    that carries it. The key comes from the wire: nothing when it is not a
    valid encapsulation key. */
-[[nodiscard]] std::optional<MlKemEncapsulation>
+[[nodiscard]] VIGINECRYPTO_API std::optional<MlKemEncapsulation>
 mlKemEncapsulate(const MlKemPublicKey &peerPublicKey);
 
 /* The shared secret `ciphertext` carries to `secretKey`. A ciphertext made for
    another key, or tampered with, yields an unrelated secret (ML-KEM's implicit
    rejection), never an error that tells the sender so; nothing only when the
    backend could not run the decapsulation. */
-[[nodiscard]] std::optional<std::array<std::byte, kMlKemSharedSecretSize>>
+[[nodiscard]] VIGINECRYPTO_API std::optional<std::array<std::byte, kMlKemSharedSecretSize>>
 mlKemDecapsulate(const MlKemSecretKey &secretKey,
                  std::span<const std::byte, kMlKem768CiphertextSize> ciphertext);
 
