@@ -2,7 +2,7 @@
 
 #include <array>
 #include <cstddef>
-#include <gtest/gtest.h>
+#include <vigine/unittest/unittest.h>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -21,7 +21,7 @@ std::vector<std::byte> bytesOf(std::string_view text)
 
 } // namespace
 
-TEST(Blake3, EmptyInputMatchesKnownVector)
+VIGINE_TEST(Blake3, EmptyInputMatchesKnownVector)
 {
     // Official BLAKE3 hash of the empty input.
     const std::array<std::byte, 32> expected = {
@@ -33,19 +33,19 @@ TEST(Blake3, EmptyInputMatchesKnownVector)
         std::byte{0x9a}, std::byte{0x93}, std::byte{0xca}, std::byte{0xe4}, std::byte{0x1f},
         std::byte{0x32}, std::byte{0x62},
     };
-    EXPECT_EQ(vigine::crypto::blake3({}), expected);
+    VIGINE_EXPECT_EQ(vigine::crypto::blake3({}), expected);
 }
 
-TEST(Blake3, OneShotMatchesStreaming)
+VIGINE_TEST(Blake3, OneShotMatchesStreaming)
 {
     const auto part1             = bytesOf("the quick brown ");
     const auto part2             = bytesOf("fox jumps over the lazy dog");
     std::vector<std::byte> whole = part1;
     whole.insert(whole.end(), part2.begin(), part2.end());
 
-    vigine::crypto::Blake3Hasher hasher;
-    hasher.update(part1);
-    hasher.update(part2);
+    const auto hasher = vigine::crypto::createBlake3Hasher();
+    hasher->update(part1);
+    hasher->update(part2);
 
-    EXPECT_EQ(hasher.finalize(), vigine::crypto::blake3(whole));
+    VIGINE_EXPECT_EQ(hasher->finalize(), vigine::crypto::blake3(whole));
 }

@@ -2,7 +2,7 @@
 
 #include <array>
 #include <cstddef>
-#include <gtest/gtest.h>
+#include <vigine/unittest/unittest.h>
 #include <stdexcept>
 #include <vector>
 
@@ -43,45 +43,45 @@ void throwsWhileHolding(Secret &secret)
 }
 } // namespace
 
-TEST(SecretWipeTest, WipesArrayAtEndOfScope)
+VIGINE_TEST(SecretWipeTest, WipesArrayAtEndOfScope)
 {
     Secret secret = filled();
     {
         const SecretWipe wipe{secret};
-        EXPECT_FALSE(allZero(secret.data(), secret.size()));
+        VIGINE_EXPECT_FALSE(allZero(secret.data(), secret.size()));
     }
-    EXPECT_TRUE(allZero(secret.data(), secret.size()));
+    VIGINE_EXPECT_TRUE(allZero(secret.data(), secret.size()));
 }
 
-TEST(SecretWipeTest, WipesOnEarlyReturn)
+VIGINE_TEST(SecretWipeTest, WipesOnEarlyReturn)
 {
     Secret secret = filled();
-    EXPECT_FALSE(useThenReturnEarly(secret, true));
-    EXPECT_TRUE(allZero(secret.data(), secret.size()));
+    VIGINE_EXPECT_FALSE(useThenReturnEarly(secret, true));
+    VIGINE_EXPECT_TRUE(allZero(secret.data(), secret.size()));
 }
 
-TEST(SecretWipeTest, WipesOnNormalReturn)
+VIGINE_TEST(SecretWipeTest, WipesOnNormalReturn)
 {
     Secret secret = filled();
-    EXPECT_TRUE(useThenReturnEarly(secret, false));
-    EXPECT_TRUE(allZero(secret.data(), secret.size()));
+    VIGINE_EXPECT_TRUE(useThenReturnEarly(secret, false));
+    VIGINE_EXPECT_TRUE(allZero(secret.data(), secret.size()));
 }
 
-TEST(SecretWipeTest, WipesWhenExceptionUnwinds)
+VIGINE_TEST(SecretWipeTest, WipesWhenExceptionUnwinds)
 {
     Secret secret = filled();
-    EXPECT_THROW(throwsWhileHolding(secret), std::runtime_error);
-    EXPECT_TRUE(allZero(secret.data(), secret.size()));
+    VIGINE_EXPECT_THROW(throwsWhileHolding(secret), std::runtime_error);
+    VIGINE_EXPECT_TRUE(allZero(secret.data(), secret.size()));
 }
 
-TEST(SecretWipeTest, WipesWholeVectorIncludingGrownContents)
+VIGINE_TEST(SecretWipeTest, WipesWholeVectorIncludingGrownContents)
 {
     std::vector<std::byte> transcript;
     transcript.reserve(64);
     {
         const SecretWipe wipe{transcript};
         transcript.assign(48, std::byte{0x3C});
-        EXPECT_EQ(transcript.size(), 48U);
+        VIGINE_EXPECT_EQ(transcript.size(), 48U);
     }
-    EXPECT_TRUE(allZero(transcript.data(), transcript.size()));
+    VIGINE_EXPECT_TRUE(allZero(transcript.data(), transcript.size()));
 }

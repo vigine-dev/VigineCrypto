@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(VIGINECRYPTO_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
-option(VIGINECRYPTO_BUILD_TESTS "Build VigineCrypto tests (they come from VigineUnitTest)" OFF)
+option(VIGINECRYPTO_BUILD_TESTS "Build VigineCrypto tests" ON)
 
 if(NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
@@ -107,6 +107,22 @@ else()
 endif()
 
 # --- tests ---------------------------------------------------------------
+# VigineUnitTest is found from CMAKE_PREFIX_PATH (<root>/install/<variant>).
 if(VIGINECRYPTO_BUILD_TESTS)
-    message(FATAL_ERROR "VigineCrypto's tests come from VigineUnitTest")
+    enable_testing()
+    find_package(VigineUnitTest REQUIRED)
+    vigine_unit_add_tests(viginecrypto-test SOURCES
+        test/aesgcm_test.cpp
+        test/compare_test.cpp
+        test/cryptodetail_test.cpp
+        test/ed25519_test.cpp
+        test/hash_test.cpp
+        test/hkdf_test.cpp
+        test/mlkem_test.cpp
+        test/random_test.cpp
+        test/spake2_test.cpp
+        test/tls_test.cpp
+        test/x25519_test.cpp)
+    # cryptodetail_test and tls_test use OpenSSL directly.
+    target_link_libraries(viginecrypto-test PRIVATE VigineCrypto::VigineCrypto vigine::openssl::ssl)
 endif()

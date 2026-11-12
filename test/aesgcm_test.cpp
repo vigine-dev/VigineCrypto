@@ -3,7 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <gtest/gtest.h>
+#include <vigine/unittest/unittest.h>
 #include <limits>
 #include <optional>
 #include <span>
@@ -32,20 +32,20 @@ std::array<std::byte, vigine::crypto::kAesGcmNonceSize> sampleNonce()
 
 } // namespace
 
-TEST(AesGcm, SealOpenRoundTrip)
+VIGINE_TEST(AesGcm, SealOpenRoundTrip)
 {
     const auto key       = vigine::crypto::AesGcmKey::random();
     const auto nonce     = sampleNonce();
     const auto plaintext = bytesOf("attack at dawn");
 
     const auto sealed    = vigine::crypto::seal(key, nonce, plaintext);
-    const auto opened    = vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag);
+    const auto opened    = vigine::crypto::open(key, nonce, sealed.ciphertext(), sealed.tag());
 
-    ASSERT_TRUE(opened.has_value());
-    EXPECT_EQ(*opened, plaintext);
+    VIGINE_ASSERT_TRUE(opened.has_value());
+    VIGINE_EXPECT_EQ(*opened, plaintext);
 }
 
-TEST(AesGcm, RoundTripWithAssociatedData)
+VIGINE_TEST(AesGcm, RoundTripWithAssociatedData)
 {
     const auto key       = vigine::crypto::AesGcmKey::random();
     const auto nonce     = sampleNonce();
@@ -53,25 +53,26 @@ TEST(AesGcm, RoundTripWithAssociatedData)
     const auto aad       = bytesOf("header-v1");
 
     const auto sealed    = vigine::crypto::seal(key, nonce, plaintext, aad);
-    EXPECT_TRUE(vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, aad).has_value());
+    VIGINE_EXPECT_TRUE(vigine::crypto::open(key, nonce, sealed.ciphertext(), sealed.tag(), aad).has_value());
     // Wrong associated data must fail authentication.
-    EXPECT_FALSE(
-        vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, bytesOf("header-v2"))
+    VIGINE_EXPECT_FALSE(
+        vigine::crypto::open(key, nonce, sealed.ciphertext(), sealed.tag(), bytesOf("header-v2"))
             .has_value());
 }
 
-TEST(AesGcm, RejectsTamperedTag)
+VIGINE_TEST(AesGcm, RejectsTamperedTag)
 {
     const auto key       = vigine::crypto::AesGcmKey::random();
     const auto nonce     = sampleNonce();
     const auto plaintext = bytesOf("secret");
 
-    auto sealed          = vigine::crypto::seal(key, nonce, plaintext);
-    sealed.tag[0]        = static_cast<std::byte>(static_cast<unsigned>(sealed.tag[0]) ^ 0xFFu);
-    EXPECT_FALSE(vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag).has_value());
+    const auto sealed    = vigine::crypto::seal(key, nonce, plaintext);
+    auto tag             = sealed.tag();
+    tag[0]               = static_cast<std::byte>(static_cast<unsigned>(tag[0]) ^ 0xFFu);
+    VIGINE_EXPECT_FALSE(vigine::crypto::open(key, nonce, sealed.ciphertext(), tag).has_value());
 }
 
-TEST(AesGcm, RejectsWrongKey)
+VIGINE_TEST(AesGcm, RejectsWrongKey)
 {
     const auto key       = vigine::crypto::AesGcmKey::random();
     const auto other     = vigine::crypto::AesGcmKey::random();
@@ -79,21 +80,21 @@ TEST(AesGcm, RejectsWrongKey)
     const auto plaintext = bytesOf("secret");
 
     const auto sealed    = vigine::crypto::seal(key, nonce, plaintext);
-    EXPECT_FALSE(vigine::crypto::open(other, nonce, sealed.ciphertext, sealed.tag).has_value());
+    VIGINE_EXPECT_FALSE(vigine::crypto::open(other, nonce, sealed.ciphertext(), sealed.tag()).has_value());
 }
 
-TEST(AesGcm, EmptyPlaintextRoundTrips)
+VIGINE_TEST(AesGcm, EmptyPlaintextRoundTrips)
 {
     const auto key    = vigine::crypto::AesGcmKey::random();
     const auto nonce  = sampleNonce();
 
     const auto sealed = vigine::crypto::seal(key, nonce, {});
-    const auto opened = vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag);
-    ASSERT_TRUE(opened.has_value());
-    EXPECT_TRUE(opened->empty());
+    const auto opened = vigine::crypto::open(key, nonce, sealed.ciphertext(), sealed.tag());
+    VIGINE_ASSERT_TRUE(opened.has_value());
+    VIGINE_EXPECT_TRUE(opened->empty());
 }
 
-TEST(AesGcm, AssociatedDataOnlyEmptyPlaintext)
+VIGINE_TEST(AesGcm, AssociatedDataOnlyEmptyPlaintext)
 {
     const auto key   = vigine::crypto::AesGcmKey::random();
     const auto nonce = sampleNonce();
@@ -102,11 +103,11 @@ TEST(AesGcm, AssociatedDataOnlyEmptyPlaintext)
     // Empty plaintext + non-empty AAD previously formed an out-of-bounds
     // pointer (ciphertext.data() + aadLen); it must seal/open cleanly now.
     const auto sealed = vigine::crypto::seal(key, nonce, {}, aad);
-    EXPECT_TRUE(sealed.ciphertext.empty());
-    const auto opened = vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, aad);
-    ASSERT_TRUE(opened.has_value());
-    EXPECT_TRUE(opened->empty());
-    EXPECT_FALSE(vigine::crypto::open(key, nonce, sealed.ciphertext, sealed.tag, bytesOf("other"))
+    VIGINE_EXPECT_TRUE(sealed.ciphertext().empty());
+    const auto opened = vigine::crypto::open(key, nonce, sealed.ciphertext(), sealed.tag(), aad);
+    VIGINE_ASSERT_TRUE(opened.has_value());
+    VIGINE_EXPECT_TRUE(opened->empty());
+    VIGINE_EXPECT_FALSE(vigine::crypto::open(key, nonce, sealed.ciphertext(), sealed.tag(), bytesOf("other"))
                      .has_value());
 }
 
@@ -132,11 +133,11 @@ std::array<std::byte, vigine::crypto::kAesGcmNonceSize> nonceNumber(std::uint64_
 } // namespace
 
 // The kept cipher seals what the one-shot seal does, message after message, each with its nonce.
-TEST(AesGcm, AKeptCipherSealsWhatTheOneShotSealDoesForEveryNonce)
+VIGINE_TEST(AesGcm, AKeptCipherSealsWhatTheOneShotSealDoesForEveryNonce)
 {
     const auto keyBytes = sampleKey();
     const vigine::crypto::AesGcmKey key{keyBytes};
-    vigine::crypto::AesGcmCipher cipher{keyBytes};
+    const auto cipher = vigine::crypto::createAesGcmCipher(keyBytes);
     const auto plaintext = bytesOf("one frame of a tunnel, sealed in place");
     const auto aad       = bytesOf("length");
     for (std::uint64_t number = 0; number < 1000; ++number)
@@ -144,43 +145,43 @@ TEST(AesGcm, AKeptCipherSealsWhatTheOneShotSealDoesForEveryNonce)
         const auto nonce = nonceNumber(number);
         std::vector<std::byte> out(plaintext.size());
         std::array<std::byte, vigine::crypto::kAesGcmTagSize> tag{};
-        cipher.seal(nonce, plaintext, aad, out, tag);
+        cipher->seal(nonce, plaintext, aad, out, tag);
         const auto oneShot = vigine::crypto::seal(key, nonce, plaintext, aad);
-        ASSERT_EQ(out, oneShot.ciphertext) << "message " << number;
-        ASSERT_EQ(tag, oneShot.tag) << "message " << number;
+        VIGINE_ASSERT_EQ(out, oneShot.ciphertext()) << "message " << number;
+        VIGINE_ASSERT_EQ(tag, oneShot.tag()) << "message " << number;
     }
 }
 
 // Sealed and opened in the same buffer; a tag that does not hold leaves nothing readable.
-TEST(AesGcm, AKeptCipherOpensInPlaceAndRefusesATagThatDoesNotHold)
+VIGINE_TEST(AesGcm, AKeptCipherOpensInPlaceAndRefusesATagThatDoesNotHold)
 {
-    vigine::crypto::AesGcmCipher sender{sampleKey()};
-    vigine::crypto::AesGcmCipher receiver{sampleKey()};
+    const auto sender = vigine::crypto::createAesGcmCipher(sampleKey());
+    const auto receiver = vigine::crypto::createAesGcmCipher(sampleKey());
     const auto plaintext          = bytesOf("sealed and opened in the same bytes");
     const auto nonce              = nonceNumber(7);
     std::vector<std::byte> buffer = plaintext;
     std::array<std::byte, vigine::crypto::kAesGcmTagSize> tag{};
-    sender.seal(nonce, buffer, {}, buffer, tag);
-    EXPECT_NE(buffer, plaintext);
+    sender->seal(nonce, buffer, {}, buffer, tag);
+    VIGINE_EXPECT_NE(buffer, plaintext);
     std::vector<std::byte> tampered = buffer;
 
-    ASSERT_TRUE(receiver.open(nonce, buffer, tag, {}, buffer));
-    EXPECT_EQ(buffer, plaintext);
+    VIGINE_ASSERT_TRUE(receiver->open(nonce, buffer, tag, {}, buffer));
+    VIGINE_EXPECT_EQ(buffer, plaintext);
 
     tampered[0] ^= std::byte{1};
-    EXPECT_FALSE(receiver.open(nonce, tampered, tag, {}, tampered));
-    EXPECT_EQ(tampered, std::vector<std::byte>(tampered.size()))
+    VIGINE_EXPECT_FALSE(receiver->open(nonce, tampered, tag, {}, tampered));
+    VIGINE_EXPECT_EQ(tampered, std::vector<std::byte>(tampered.size()))
         << "what did not hold is wiped, not handed out";
     std::vector<std::byte> sealed(plaintext.size());
-    sender.seal(nonce, plaintext, {}, sealed, tag);
+    sender->seal(nonce, plaintext, {}, sealed, tag);
     std::vector<std::byte> opened(sealed.size());
-    EXPECT_FALSE(receiver.open(nonceNumber(8), sealed, tag, {}, opened))
+    VIGINE_EXPECT_FALSE(receiver->open(nonceNumber(8), sealed, tag, {}, opened))
         << "another nonce does not open it";
 }
 
 // The size check runs before any byte is read or allocated, so the spans below only
 // claim a length above INT_MAX over a small buffer; nothing past it is dereferenced.
-TEST(AesGcm, RefusesSizesAboveIntMaxBeforeOpenSsl)
+VIGINE_TEST(AesGcm, RefusesSizesAboveIntMaxBeforeOpenSsl)
 {
     const auto key       = vigine::crypto::AesGcmKey::random();
     const auto nonce     = sampleNonce();
@@ -189,12 +190,12 @@ TEST(AesGcm, RefusesSizesAboveIntMaxBeforeOpenSsl)
     const auto tooLong = static_cast<std::size_t>(std::numeric_limits<int>::max()) + 1;
 
     const std::span<const std::byte> forgedCiphertext(small.data(), tooLong);
-    EXPECT_FALSE(vigine::crypto::open(key, nonce, forgedCiphertext, tag).has_value());
+    VIGINE_EXPECT_FALSE(vigine::crypto::open(key, nonce, forgedCiphertext, tag).has_value());
 
     const std::span<const std::byte> forgedAad(small.data(), tooLong);
-    EXPECT_FALSE(vigine::crypto::open(key, nonce, {}, tag, forgedAad).has_value());
+    VIGINE_EXPECT_FALSE(vigine::crypto::open(key, nonce, {}, tag, forgedAad).has_value());
 
-    vigine::crypto::AesGcmCipher cipher{sampleKey()};
+    const auto cipher = vigine::crypto::createAesGcmCipher(sampleKey());
     std::vector<std::byte> out(16);
-    EXPECT_FALSE(cipher.open(nonceNumber(1), forgedCiphertext, tag, {}, out));
+    VIGINE_EXPECT_FALSE(cipher->open(nonceNumber(1), forgedCiphertext, tag, {}, out));
 }
