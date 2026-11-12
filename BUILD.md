@@ -3,28 +3,31 @@
 VigineCrypto vendors and builds OpenSSL from source, so the OpenSSL build
 prerequisites are ours too.
 
+## Build by the recipe
+
+`vigine.build.toml` is the recipe: variants debug and release, the settings, and the configure, build and test
+steps. The VigineBuild tool runs it (`build_recipe.py validate vigine.build.toml` checks it); the settings it passes
+are the ones below.
+
 ## Prerequisites
 
-- CMake 3.24+
-- A C++20 compiler (MSVC 2022+, Clang, or GCC)
-- **Perl** — required by OpenSSL's `Configure`
+- CMake 3.25+ and Ninja
+- A C++23 compiler (our clang)
+- **Perl and make**, named explicitly. OpenSSL is built by its own `Configure` and make, and the configure
+  never searches `PATH` for them. Pass both as absolute paths:
+  - `VIGINECRYPTO_PERL` -- the Perl that runs OpenSSL's `Configure`;
+  - `VIGINECRYPTO_MAKE` -- `make` on macOS and Linux, `nmake` of the Visual Studio toolchain on Windows.
+
+  When one is missing or does not exist the configure stops and names it. The recipe states them per system:
+  macOS and Ubuntu `/usr/bin/perl` and `/usr/bin/make`; Windows `C:/Strawberry/perl/bin/perl.exe` and the `nmake.exe`
+  under `VC/Tools/MSVC/<version>/bin/Hostx64/x64` of Visual Studio.
 
 ### Windows: use a full Perl, not the Git-Bash one
 
-The vendored OpenSSL is configured by a Perl script. It needs a *complete*
-Perl distribution — [Strawberry Perl](https://strawberryperl.com) or
-ActivePerl. The Perl shipped with Git for Windows / MSYS2 is missing modules
-OpenSSL pulls in (`Locale::Maketext::Simple`), and the build then fails during
-OpenSSL configure with a bare `exited with code 1` and no obvious cause.
-
-Make sure a full Perl is **first on `PATH`** before configuring — this matters
-even when you launch the build from a Git-Bash shell, because that shell puts
-its own `perl` ahead of everything else:
-
-```sh
-export PATH="/c/Strawberry/perl/bin:$PATH"   # Git-Bash
-# or open a "x64 Native Tools Command Prompt" with Strawberry Perl on PATH
-```
+OpenSSL's `Configure` needs a *complete* Perl -- [Strawberry Perl](https://strawberryperl.com) or ActivePerl. The Perl
+of Git for Windows / MSYS2 lacks modules OpenSSL pulls in (`Locale::Maketext::Simple`) and the configure dies with a
+bare `exited with code 1`. Point `VIGINECRYPTO_PERL` at Strawberry's `perl.exe`, and configure from a Visual Studio
+developer prompt (`vcvars64.bat`) so `nmake` finds `INCLUDE` and `LIB`.
 
 ### A system OpenSSL instead
 
@@ -43,10 +46,26 @@ OpenSSL is built once, inside VigineCrypto's own build folder. No copy of it is 
 ## Build
 
 ```sh
-cmake -S . -B build
-cmake --build build --config Release
+cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_PREFIX_PATH=<root>/install/debug \
+    -DVIGINECRYPTO_PERL=/usr/bin/perl -DVIGINECRYPTO_MAKE=/usr/bin/make
+cmake --build build/debug
 ```
 
 ## Test
 
-VigineCrypto's tests come from VigineUnitTest (task 18248 brings them back); switching them on here stops the configure with a message saying so.
+```sh
+ctest --test-dir build/debug --output-on-failure
+```
+
+VigineCrypto's tests run on VigineUnitTest, found from `CMAKE_PREFIX_PATH`.
+
+## Install and use
+
+```sh
+cmake --install build/debug --prefix <prefix>
+```
+
+installs VigineCrypto's own headers and `viginecrypto_export.h` into `include/vigine/crypto`, the shared library, and
+the package files in `lib/cmake/VigineCrypto`. No OpenSSL or BLAKE3 header or library is installed; they live inside
+the shared library. A consumer uses `find_package(VigineCrypto)` and `VigineCrypto::VigineCrypto`.
