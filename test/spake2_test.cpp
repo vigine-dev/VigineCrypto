@@ -6,9 +6,11 @@
 
 #include <vigine/unittest/unittest.h>
 #include <memory>
+#include <new>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace
@@ -164,4 +166,58 @@ VIGINE_TEST(Spake2, ACodeMakesADifferentScalarForADifferentPurpose)
               asVector(spake2PasswordScalar("another.purpose", "734-218")));
     VIGINE_EXPECT_EQ(asVector(spake2PasswordScalar("vigine.link.pairing", "734-218")),
               asVector(spake2PasswordScalar("vigine.link.pairing", "734-218")));
+}
+
+namespace
+{
+bool allZero(const volatile unsigned char *bytes, std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index)
+        if (bytes[index] != 0)
+            return false;
+    return true;
+}
+
+std::array<std::byte, kSpake2KeySize> filledKey(unsigned char value)
+{
+    std::array<std::byte, kSpake2KeySize> key{};
+    key.fill(std::byte{value});
+    return key;
+}
+} // namespace
+
+// The destructor runs on a placement buffer the test owns, so the bytes it leaves can be read
+// afterwards; the confirmations are zero, so a non-zero byte could only be the key.
+VIGINE_TEST(Spake2, TheSharedKeyIsWipedWhenTheOutcomeIsDestroyed)
+{
+    alignas(Spake2Outcome) unsigned char storage[sizeof(Spake2Outcome)];
+    const std::array<std::byte, kSpake2ConfirmationSize> confirmation{};
+    const auto key = filledKey(0xA5);
+    auto *outcome  = new (storage) Spake2Outcome{key, confirmation, confirmation};
+    VIGINE_ASSERT_EQ(outcome->sharedKey(), key);
+    outcome->~Spake2Outcome();
+    VIGINE_EXPECT_TRUE(allZero(storage, sizeof(storage)));
+}
+
+VIGINE_TEST(Spake2, AMovedFromOutcomeHoldsNoKeyAndTheTargetKeepsIt)
+{
+    const std::array<std::byte, kSpake2ConfirmationSize> confirmation{};
+    const auto key = filledKey(0xA5);
+    Spake2Outcome source{key, confirmation, confirmation};
+    Spake2Outcome target{std::move(source)};
+    VIGINE_EXPECT_EQ(target.sharedKey(), key);
+    VIGINE_EXPECT_TRUE(allZero(reinterpret_cast<const unsigned char *>(source.sharedKey().data()),
+                               source.sharedKey().size()));
+}
+
+VIGINE_TEST(Spake2, MoveAssignmentWipesTheOverwrittenKeyAndTheSource)
+{
+    const std::array<std::byte, kSpake2ConfirmationSize> confirmation{};
+    const auto key = filledKey(0xA5);
+    Spake2Outcome source{key, confirmation, confirmation};
+    Spake2Outcome target{filledKey(0x5A), confirmation, confirmation};
+    target = std::move(source);
+    VIGINE_EXPECT_EQ(target.sharedKey(), key);
+    VIGINE_EXPECT_TRUE(allZero(reinterpret_cast<const unsigned char *>(source.sharedKey().data()),
+                               source.sharedKey().size()));
 }

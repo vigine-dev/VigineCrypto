@@ -33,16 +33,19 @@ enum class Spake2Role : std::uint8_t
 
 /* What both sides hold when the exchange went through: the shared key and the
    confirmation each side owes the other. A side sends its own confirmation and
-   accepts the peer only when the peer's matches (spake2ConfirmationsMatch). */
-class Spake2Outcome
+   accepts the peer only when the peer's matches (spake2ConfirmationsMatch).
+   Move-only; the shared key is zeroed on destruction and in a moved-from object. */
+class VIGINECRYPTO_API Spake2Outcome
 {
   public:
-    Spake2Outcome(std::array<std::byte, kSpake2KeySize> sharedKey,
-                  std::array<std::byte, kSpake2ConfirmationSize> confirmationA,
-                  std::array<std::byte, kSpake2ConfirmationSize> confirmationB)
-        : _sharedKey(sharedKey), _confirmationA(confirmationA), _confirmationB(confirmationB)
-    {
-    }
+    Spake2Outcome(const std::array<std::byte, kSpake2KeySize> &sharedKey,
+                  const std::array<std::byte, kSpake2ConfirmationSize> &confirmationA,
+                  const std::array<std::byte, kSpake2ConfirmationSize> &confirmationB);
+    Spake2Outcome(const Spake2Outcome &)            = delete;
+    Spake2Outcome &operator=(const Spake2Outcome &) = delete;
+    Spake2Outcome(Spake2Outcome &&other) noexcept;
+    Spake2Outcome &operator=(Spake2Outcome &&other) noexcept;
+    ~Spake2Outcome();
 
     [[nodiscard]] const std::array<std::byte, kSpake2KeySize> &sharedKey() const
     {
