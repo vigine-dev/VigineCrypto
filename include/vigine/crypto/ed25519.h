@@ -46,8 +46,9 @@ class VIGINECRYPTO_API Ed25519SecretKey
     explicit Ed25519SecretKey(std::span<const std::byte, kEd25519SeedSize> seed);
 
     friend class Ed25519KeyPair;
-    friend Ed25519KeyPair generateKeyPair();
-    friend Ed25519KeyPair keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed);
+    friend VIGINECRYPTO_API Ed25519KeyPair generateKeyPair();
+    friend VIGINECRYPTO_API Ed25519KeyPair
+    keyPairFromSeed(std::span<const std::byte, kEd25519SeedSize> seed);
 
     std::array<std::byte, kEd25519SeedSize> _bytes{};
 };

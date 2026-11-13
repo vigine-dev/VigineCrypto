@@ -48,8 +48,8 @@ class VIGINECRYPTO_API X25519SecretKey
     explicit X25519SecretKey(std::span<const std::byte, kX25519PrivateKeySize> scalar);
 
     friend class X25519KeyPair;
-    friend X25519KeyPair generateX25519KeyPair();
-    friend X25519KeyPair
+    friend VIGINECRYPTO_API X25519KeyPair generateX25519KeyPair();
+    friend VIGINECRYPTO_API X25519KeyPair
     x25519KeyPairFromScalar(std::span<const std::byte, kX25519PrivateKeySize> scalar);
 
     std::array<std::byte, kX25519PrivateKeySize> _bytes{};

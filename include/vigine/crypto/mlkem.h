@@ -47,7 +47,7 @@ class VIGINECRYPTO_API MlKemSecretKey
   private:
     explicit MlKemSecretKey(std::span<const std::byte, kMlKem768SecretKeySize> bytes);
 
-    friend MlKemKeyPair generateMlKemKeyPair();
+    friend VIGINECRYPTO_API MlKemKeyPair generateMlKemKeyPair();
 
     std::array<std::byte, kMlKem768SecretKeySize> _bytes{};
 };
@@ -69,15 +69,17 @@ class MlKemKeyPair
 };
 
 // What encapsulating to a peer's key gives: the ciphertext to send it, and the secret both now
-// hold.
-class MlKemEncapsulation
+// hold. Move-only; the shared secret is zeroed on destruction and in a moved-from object.
+class VIGINECRYPTO_API MlKemEncapsulation
 {
   public:
-    MlKemEncapsulation(std::array<std::byte, kMlKem768CiphertextSize> ciphertext,
-                       std::array<std::byte, kMlKemSharedSecretSize> sharedSecret)
-        : _ciphertext(ciphertext), _sharedSecret(sharedSecret)
-    {
-    }
+    MlKemEncapsulation(const std::array<std::byte, kMlKem768CiphertextSize> &ciphertext,
+                       const std::array<std::byte, kMlKemSharedSecretSize> &sharedSecret);
+    MlKemEncapsulation(const MlKemEncapsulation &)            = delete;
+    MlKemEncapsulation &operator=(const MlKemEncapsulation &) = delete;
+    MlKemEncapsulation(MlKemEncapsulation &&other) noexcept;
+    MlKemEncapsulation &operator=(MlKemEncapsulation &&other) noexcept;
+    ~MlKemEncapsulation();
 
     [[nodiscard]] const std::array<std::byte, kMlKem768CiphertextSize> &ciphertext() const
     {
