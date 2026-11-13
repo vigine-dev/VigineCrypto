@@ -219,6 +219,35 @@ std::optional<std::unique_ptr<ISpake2Session>> beginSpake2WithScalar(Spake2Role 
     return std::unique_ptr<ISpake2Session>{std::make_unique<Spake2Session>(std::move(state))};
 }
 
+Spake2Outcome::Spake2Outcome(const std::array<std::byte, kSpake2KeySize> &sharedKey,
+                             const std::array<std::byte, kSpake2ConfirmationSize> &confirmationA,
+                             const std::array<std::byte, kSpake2ConfirmationSize> &confirmationB)
+    : _sharedKey(sharedKey), _confirmationA(confirmationA), _confirmationB(confirmationB)
+{
+}
+
+Spake2Outcome::Spake2Outcome(Spake2Outcome &&other) noexcept
+    : _sharedKey(other._sharedKey), _confirmationA(other._confirmationA),
+      _confirmationB(other._confirmationB)
+{
+    OPENSSL_cleanse(other._sharedKey.data(), other._sharedKey.size());
+}
+
+Spake2Outcome &Spake2Outcome::operator=(Spake2Outcome &&other) noexcept
+{
+    if (this != &other)
+    {
+        OPENSSL_cleanse(_sharedKey.data(), _sharedKey.size());
+        _sharedKey     = other._sharedKey;
+        _confirmationA = other._confirmationA;
+        _confirmationB = other._confirmationB;
+        OPENSSL_cleanse(other._sharedKey.data(), other._sharedKey.size());
+    }
+    return *this;
+}
+
+Spake2Outcome::~Spake2Outcome() { OPENSSL_cleanse(_sharedKey.data(), _sharedKey.size()); }
+
 std::span<const std::byte, kSpake2ShareSize> Spake2Session::share() const
 {
     return std::span<const std::byte, kSpake2ShareSize>{_state->share};
@@ -289,9 +318,11 @@ std::optional<Spake2Outcome> Spake2Session::finish(std::span<const std::byte> pe
 
     std::array<std::byte, kSpake2KeySize> sharedKey{};
     std::memcpy(sharedKey.data(), digest.data(), kSpake2KeySize);
-    return Spake2Outcome{
+    Spake2Outcome outcome{
         sharedKey, hmacSha256(std::span{confirmationKeys.data(), kSpake2KeySize}, transcript),
         hmacSha256(std::span{confirmationKeys.data() + kSpake2KeySize, kSpake2KeySize}, transcript)};
+    OPENSSL_cleanse(sharedKey.data(), sharedKey.size());
+    return outcome;
 }
 
 std::array<std::byte, kSpake2ScalarSize> spake2PasswordScalar(std::string_view domain,

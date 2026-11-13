@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstddef>
+#include <new>
+#include <utility>
 #include <vigine/unittest/unittest.h>
 #include <span>
 
@@ -56,4 +58,62 @@ VIGINE_TEST(MlKem, AKeyThatIsNotAnEncapsulationKeyIsRefused)
     VIGINE_EXPECT_FALSE(mlKemEncapsulate(
                      MlKemPublicKey{std::span<const std::byte, kMlKem768PublicKeySize>{notAKey}})
                      .has_value());
+}
+
+namespace
+{
+constexpr std::array<std::byte, kMlKemSharedSecretSize> filledSecret()
+{
+    std::array<std::byte, kMlKemSharedSecretSize> secret{};
+    for (std::byte &value : secret)
+        value = std::byte{0xA5};
+    return secret;
+}
+
+bool allZero(const volatile unsigned char *bytes, std::size_t count)
+{
+    for (std::size_t index = 0; index < count; ++index)
+        if (bytes[index] != 0)
+            return false;
+    return true;
+}
+} // namespace
+
+// The destructor runs on a placement buffer the test owns, so the bytes it leaves can be read
+// afterwards without touching a destroyed object's members.
+VIGINE_TEST(MlKem, TheSharedSecretIsWipedWhenTheEncapsulationIsDestroyed)
+{
+    alignas(MlKemEncapsulation) unsigned char storage[sizeof(MlKemEncapsulation)];
+    const std::array<std::byte, kMlKem768CiphertextSize> ciphertext{};
+    const auto secret                  = filledSecret();
+    MlKemEncapsulation *encapsulation = new (storage) MlKemEncapsulation{ciphertext, secret};
+    VIGINE_ASSERT_EQ(encapsulation->sharedSecret(), secret);
+    encapsulation->~MlKemEncapsulation();
+    // The shared secret is the only member written with a non-zero pattern; the ciphertext is zero.
+    VIGINE_EXPECT_TRUE(allZero(storage, sizeof(storage)));
+}
+
+VIGINE_TEST(MlKem, AMovedFromEncapsulationHoldsNoSecretAndTheTargetKeepsIt)
+{
+    const std::array<std::byte, kMlKem768CiphertextSize> ciphertext{};
+    const auto secret = filledSecret();
+    MlKemEncapsulation source{ciphertext, secret};
+    MlKemEncapsulation target{std::move(source)};
+    VIGINE_EXPECT_EQ(target.sharedSecret(), secret);
+    VIGINE_EXPECT_TRUE(allZero(reinterpret_cast<const unsigned char *>(source.sharedSecret().data()),
+                               source.sharedSecret().size()));
+}
+
+VIGINE_TEST(MlKem, MoveAssignmentWipesTheOverwrittenSecretAndTheSource)
+{
+    const std::array<std::byte, kMlKem768CiphertextSize> ciphertext{};
+    const auto secret = filledSecret();
+    std::array<std::byte, kMlKemSharedSecretSize> other{};
+    other.fill(std::byte{0x5A});
+    MlKemEncapsulation source{ciphertext, secret};
+    MlKemEncapsulation target{ciphertext, other};
+    target = std::move(source);
+    VIGINE_EXPECT_EQ(target.sharedSecret(), secret);
+    VIGINE_EXPECT_TRUE(allZero(reinterpret_cast<const unsigned char *>(source.sharedSecret().data()),
+                               source.sharedSecret().size()));
 }
