@@ -56,7 +56,12 @@ std::vector<std::byte> hkdfSha256(std::span<const std::byte> secret,
     // (8160 for SHA-256), so an over-long request surfaces as an empty result.
     if (EVP_KDF_derive(ctx.get(), reinterpret_cast<unsigned char *>(out.data()), outLength,
                        params) != 1)
+    {
+        // Not returned on this path, so it is wiped here; a guard would also wipe the
+        // success value below, which is returned.
+        OPENSSL_cleanse(out.data(), out.size());
         return {};
+    }
     return out;
 }
 

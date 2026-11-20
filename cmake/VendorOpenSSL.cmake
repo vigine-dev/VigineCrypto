@@ -25,6 +25,19 @@ if(VIGINECRYPTO_SYSTEM_OPENSSL)
     return()
 endif()
 
+# The two programs of OpenSSL's own build are named by the caller, never searched for on PATH:
+# VIGINECRYPTO_PERL runs Configure (a full Perl: Strawberry on Windows), VIGINECRYPTO_MAKE builds
+# (make on macOS and Linux, nmake of the Visual Studio toolchain on Windows).
+foreach(_openssl_tool VIGINECRYPTO_PERL VIGINECRYPTO_MAKE)
+    if("${${_openssl_tool}}" STREQUAL "")
+        message(FATAL_ERROR "VendorOpenSSL: ${_openssl_tool} is not set. Pass the absolute path of the "
+            "program (-D${_openssl_tool}=<path>); the vigine.build.toml recipe states it for every system.")
+    endif()
+    if(NOT EXISTS "${${_openssl_tool}}")
+        message(FATAL_ERROR "VendorOpenSSL: ${_openssl_tool} is \"${${_openssl_tool}}\", which does not exist.")
+    endif()
+endforeach()
+
 set(_openssl_src ${VIGINECRYPTO_ROOT_DIR}/external/openssl)
 set(_openssl_prefix ${CMAKE_BINARY_DIR}/external/openssl)
 set(_openssl_install ${_openssl_prefix}/install)
@@ -49,6 +62,64 @@ else()
     message(FATAL_ERROR "VendorOpenSSL: no OpenSSL Configure target for this platform")
 endif()
 
+# OpenSSL's own Configure and make know nothing of the platform's system headers and
+# libraries, and the compiler CMake picked (our clang on macOS) may not either. They are
+# found here once, for every platform, and handed to OpenSSL's build; when they cannot
+# be found the configure stops with the reason.
+set(_openssl_sys_env "")
+set(_openssl_sys_flags "")
+if(APPLE)
+    set(_openssl_sdk "")
+    if(CMAKE_OSX_SYSROOT)
+        # An SDK named on purpose is never replaced by another one behind the caller's back.
+        if(NOT IS_DIRECTORY "${CMAKE_OSX_SYSROOT}")
+            message(FATAL_ERROR "VendorOpenSSL: CMAKE_OSX_SYSROOT is \"${CMAKE_OSX_SYSROOT}\", "
+                "which is not a directory, so the macOS SDK headers cannot be found. "
+                "Point it at an existing SDK or leave it empty.")
+        endif()
+        set(_openssl_sdk "${CMAKE_OSX_SYSROOT}")
+    elseif(DEFINED ENV{SDKROOT} AND IS_DIRECTORY "$ENV{SDKROOT}")
+        set(_openssl_sdk "$ENV{SDKROOT}")
+    else()
+        execute_process(COMMAND xcrun --show-sdk-path
+            OUTPUT_VARIABLE _openssl_sdk OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _openssl_sdk_result ERROR_QUIET)
+        if(NOT _openssl_sdk_result EQUAL 0)
+            set(_openssl_sdk "")
+        endif()
+    endif()
+    if(NOT _openssl_sdk OR NOT IS_DIRECTORY "${_openssl_sdk}")
+        message(FATAL_ERROR "VendorOpenSSL: the macOS SDK was not found (CMAKE_OSX_SYSROOT is empty, "
+            "SDKROOT is not a directory and `xcrun --show-sdk-path` gave nothing). "
+            "Install the Xcode command line tools or set SDKROOT.")
+    endif()
+    set(_openssl_sys_env "SDKROOT=${_openssl_sdk}")
+    set(_openssl_sys_flags "-isysroot ${_openssl_sdk}")
+elseif(WIN32)
+    if(NOT DEFINED ENV{INCLUDE} OR "$ENV{INCLUDE}" STREQUAL "" OR NOT DEFINED ENV{LIB} OR "$ENV{LIB}" STREQUAL "")
+        message(FATAL_ERROR "VendorOpenSSL: INCLUDE and LIB are not set, so the Visual Studio "
+            "headers and libraries cannot be found. Configure from a Visual Studio developer "
+            "prompt (vcvars64.bat) so OpenSSL's nmake build can see them.")
+    endif()
+    # INCLUDE and LIB are not passed on the command line: their backslashes and `;` do not survive
+    # the generated configure script. The OpenSSL steps inherit them from the Visual Studio shell.
+elseif(UNIX)
+    set(_openssl_sys_dirs "")
+    foreach(_openssl_dir IN LISTS CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES)
+        string(APPEND _openssl_sys_flags " -isystem ${_openssl_dir}")
+        list(APPEND _openssl_sys_dirs "${_openssl_dir}")
+    endforeach()
+    if(CMAKE_SYSROOT)
+        string(PREPEND _openssl_sys_flags "--sysroot=${CMAKE_SYSROOT}")
+    endif()
+    if(NOT CMAKE_SYSROOT AND NOT _openssl_sys_dirs)
+        message(FATAL_ERROR "VendorOpenSSL: the system headers were not found (CMAKE_SYSROOT is "
+            "empty and the compiler reported no implicit include directories). "
+            "Set CMAKE_SYSROOT or install the C library headers.")
+    endif()
+endif()
+string(STRIP "${_openssl_sys_flags}" _openssl_sys_flags)
+
 # OpenSSL's Perl/make build resolves its C compiler from `$CC`, falling
 # back to a bare `gcc`/`cc` found on PATH. When that PATH default is not
 # the toolchain CMake selected for the rest of the project, libcrypto is
@@ -56,13 +127,13 @@ endif()
 # references to glibc symbols the final link target never provides (e.g.
 # `__pthread_cond_timedwait64` from a stray time64 redirect). Pin the
 # OpenSSL build to ${CMAKE_C_COMPILER} so a single toolchain compiles the
-# whole project. On Windows the env wrapper stays empty -- the VC build
-# already drives `cl` directly and does not consult `$CC`.
+# whole project. On Windows the VC build drives `cl` directly and does not
+# consult `$CC`, so no wrapper is needed.
 if(WIN32)
     set(_openssl_crypto_name libcrypto.lib)
     set(_openssl_ssl_name libssl.lib)
-    set(_openssl_build_cmd nmake)
-    set(_openssl_install_cmd nmake install_dev)
+    set(_openssl_build_cmd ${VIGINECRYPTO_MAKE})
+    set(_openssl_install_cmd ${VIGINECRYPTO_MAKE} install_dev)
     # libcrypto (CAPI engine, winstore store) and libssl reference Windows
     # system import libraries not bundled into the static .lib.
     set(_openssl_syslibs ws2_32 crypt32 advapi32 user32 gdi32 bcrypt)
@@ -70,10 +141,18 @@ if(WIN32)
 else()
     set(_openssl_crypto_name libcrypto.a)
     set(_openssl_ssl_name libssl.a)
-    set(_openssl_build_cmd make -j${_openssl_jobs} build_libs)
-    set(_openssl_install_cmd make install_dev)
+    set(_openssl_build_cmd ${VIGINECRYPTO_MAKE} -j${_openssl_jobs} build_libs)
+    set(_openssl_install_cmd ${VIGINECRYPTO_MAKE} install_dev)
     set(_openssl_syslibs "")
-    set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}")
+    set(_openssl_toolchain_env ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER}" "CFLAGS=${_openssl_sys_flags}" ${_openssl_sys_env})
+endif()
+# OPENSSLDIR is baked into libcrypto. It must not be a folder of any build tree (it was the
+# install/ssl of whichever tree published the cached copy, which is gone elsewhere). The
+# engine's TLS client loads its roots itself; this is only OpenSSL's own default location.
+if(WIN32)
+    set(_openssl_dir "C:/Program Files/Common Files/SSL")
+else()
+    set(_openssl_dir /etc/ssl)
 endif()
 set(_openssl_crypto_lib ${_openssl_install}/lib/${_openssl_crypto_name})
 set(_openssl_ssl_lib ${_openssl_install}/lib/${_openssl_ssl_name})
@@ -110,46 +189,7 @@ else()
     set(_openssl_extra_conf "")
 endif()
 
-# One built OpenSSL per machine: every build tree with the same OpenSSL commit, Configure target,
-# options and compiler links the copy the first of them published, and builds none of its own.
-# An empty VIGINECRYPTO_OPENSSL_CACHE turns the sharing off.
-if(DEFINED ENV{VIGINECRYPTO_OPENSSL_CACHE})
-    set(_openssl_cache_default $ENV{VIGINECRYPTO_OPENSSL_CACHE})
-elseif(WIN32)
-    file(TO_CMAKE_PATH "$ENV{LOCALAPPDATA}/vigine/openssl" _openssl_cache_default)
-else()
-    set(_openssl_cache_default "$ENV{HOME}/.cache/vigine/openssl")
-endif()
-set(VIGINECRYPTO_OPENSSL_CACHE "${_openssl_cache_default}" CACHE PATH
-    "Where the built OpenSSL is shared between build trees; empty builds it in every tree")
-
-set(_openssl_cached "")
-if(VIGINECRYPTO_OPENSSL_CACHE)
-    find_package(Git QUIET)
-    if(GIT_FOUND)
-        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${_openssl_src} rev-parse HEAD
-            OUTPUT_VARIABLE _openssl_commit OUTPUT_STRIP_TRAILING_WHITESPACE
-            RESULT_VARIABLE _openssl_commit_result ERROR_QUIET)
-        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${_openssl_src} status --porcelain --untracked-files=no
-            OUTPUT_VARIABLE _openssl_dirty OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-    endif()
-    # A source with edits of its own is no commit's: it is built in the tree. On Windows nmake drives
-    # the cl of the VC shell whatever CMake compiles with, so its toolset is in the key too.
-    if(_openssl_commit_result EQUAL 0 AND _openssl_commit AND NOT _openssl_dirty)
-        string(SHA256 _openssl_key "1|${_openssl_commit}|${_openssl_target}|${_openssl_extra_conf}|${CMAKE_C_COMPILER_ID}|${CMAKE_C_COMPILER_VERSION}|${CMAKE_C_COMPILER}|${MSVC_VERSION}|$ENV{VCToolsVersion}")
-        string(SUBSTRING ${_openssl_key} 0 20 _openssl_key)
-        set(_openssl_cached ${VIGINECRYPTO_OPENSSL_CACHE}/${_openssl_key})
-    endif()
-endif()
-
-if(_openssl_cached AND EXISTS ${_openssl_cached}/lib/${_openssl_crypto_name}
-   AND EXISTS ${_openssl_cached}/lib/${_openssl_ssl_name})
-    message(STATUS "VigineCrypto: OpenSSL from ${_openssl_cached}")
-    set(_openssl_install ${_openssl_cached})
-    set(_openssl_crypto_lib ${_openssl_install}/lib/${_openssl_crypto_name})
-    set(_openssl_ssl_lib ${_openssl_install}/lib/${_openssl_ssl_name})
-    add_custom_target(openssl_external)
-else()
+# OpenSSL is built once, inside this build folder; nothing is shared between build trees.
 ExternalProject_Add(openssl_external
     SOURCE_DIR ${_openssl_source_dir}
     PREFIX ${_openssl_prefix}
@@ -163,14 +203,12 @@ ExternalProject_Add(openssl_external
     # rebuild silently installs into `install/lib64/lib{ssl,crypto}.a`
     # and Make then fails to find `install/lib/lib{ssl,crypto}.a`
     # during the consumer link step with `No rule to make target`.
-    # `perl` must resolve to a full Perl (Strawberry or ActivePerl on Windows).
-    # The MSYS / Git-Bash perl lacks Locale::Maketext::Simple, which Configure
-    # pulls in transitively, so a build launched from a Git-Bash shell dies at
-    # configure with a bare "exited with code 1". Put a full Perl first on PATH.
-    CONFIGURE_COMMAND ${_openssl_toolchain_env} perl ${_openssl_configure_dir}/Configure ${_openssl_target}
+    # VIGINECRYPTO_PERL must be a full Perl (Strawberry or ActivePerl on Windows): the MSYS /
+    # Git-Bash perl lacks Locale::Maketext::Simple, which Configure pulls in transitively.
+    CONFIGURE_COMMAND ${_openssl_toolchain_env} ${VIGINECRYPTO_PERL} ${_openssl_configure_dir}/Configure ${_openssl_target}
         no-shared no-apps no-tests no-docs ${_openssl_extra_conf}
         --prefix=${_openssl_install} --libdir=lib
-        --openssldir=${_openssl_install}/ssl
+        --openssldir=${_openssl_dir}
     BUILD_COMMAND ${_openssl_toolchain_env} ${_openssl_build_cmd}
     INSTALL_COMMAND ${_openssl_toolchain_env} ${_openssl_install_cmd}
     BUILD_BYPRODUCTS ${_openssl_crypto_lib} ${_openssl_ssl_lib}
@@ -178,14 +216,6 @@ ExternalProject_Add(openssl_external
     LOG_BUILD 1
     LOG_INSTALL 1
 )
-if(_openssl_cached)
-    ExternalProject_Add_Step(openssl_external publish
-        COMMAND ${CMAKE_COMMAND} -DFROM=${_openssl_install} -DTO=${_openssl_cached}
-                -P ${CMAKE_CURRENT_LIST_DIR}/PublishOpenSSL.cmake
-        DEPENDEES install
-        COMMENT "Sharing the built OpenSSL as ${_openssl_cached}")
-endif()
-endif()
 
 file(MAKE_DIRECTORY ${_openssl_install}/include)
 

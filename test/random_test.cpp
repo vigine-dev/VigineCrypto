@@ -2,7 +2,7 @@
 
 #include <array>
 #include <cstddef>
-#include <gtest/gtest.h>
+#include <vigine/unittest/unittest.h>
 #include <span>
 
 namespace
@@ -18,31 +18,31 @@ bool allZero(std::span<const std::byte> bytes)
 
 } // namespace
 
-TEST(CryptoRandom, FillsBufferNonZero)
+VIGINE_TEST(CryptoRandom, FillsBufferNonZero)
 {
     std::array<std::byte, 32> buffer{};
     vigine::crypto::randomBytes(buffer);
     // A 32-byte all-zero draw is a 1-in-2^256 event.
-    EXPECT_FALSE(allZero(buffer));
+    VIGINE_EXPECT_FALSE(allZero(buffer));
 }
 
-TEST(CryptoRandom, TwoCallsDiffer)
+VIGINE_TEST(CryptoRandom, TwoCallsDiffer)
 {
     std::array<std::byte, 32> first{};
     std::array<std::byte, 32> second{};
     vigine::crypto::randomBytes(first);
     vigine::crypto::randomBytes(second);
-    EXPECT_NE(first, second);
+    VIGINE_EXPECT_NE(first, second);
 }
 
-TEST(CryptoRandom, EmptySpanIsNoop)
+VIGINE_TEST(CryptoRandom, EmptySpanIsNoop)
 {
     std::span<std::byte> empty;
     vigine::crypto::randomBytes(empty);
     SUCCEED();
 }
 
-TEST(CryptoRandom, EnsureCsprngReadyDoesNotAbort)
+VIGINE_TEST(CryptoRandom, EnsureCsprngReadyDoesNotAbort)
 {
     // A working OpenSSL DRBG must pass the startup self-check without aborting,
     // and repeated calls must be a no-op (the check runs once).

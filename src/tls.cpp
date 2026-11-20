@@ -1,6 +1,7 @@
 #include "vigine/crypto/tls.h"
 
 #include <openssl/crypto.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
@@ -9,22 +10,35 @@
 #include <string>
 #include <utility>
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <wincrypt.h>
+#else
+#include <sys/stat.h>
+#endif
+
 namespace vigine::crypto
 {
 
-struct TlsStream::State
+ITlsStream::~ITlsStream() = default;
+
+namespace
+{
+
+struct TlsState
 {
     SSL_CTX *ctx{nullptr};
     SSL *ssl{nullptr};
     bool ok{false};
+    std::string reason;
 
-    State()                         = default;
-    State(const State &)            = delete;
-    State(State &&)                 = delete;
-    State &operator=(const State &) = delete;
-    State &operator=(State &&)      = delete;
+    TlsState()                            = default;
+    TlsState(const TlsState &)            = delete;
+    TlsState(TlsState &&)                 = delete;
+    TlsState &operator=(const TlsState &) = delete;
+    TlsState &operator=(TlsState &&)      = delete;
 
-    ~State()
+    ~TlsState()
     {
         if (ssl != nullptr)
             SSL_free(ssl);
@@ -33,8 +47,21 @@ struct TlsStream::State
     }
 };
 
-namespace
+class TlsStream final : public ITlsStream
 {
+  public:
+    explicit TlsStream(std::unique_ptr<TlsState> state) noexcept : _state(std::move(state)) {}
+
+    bool ok() const noexcept override { return _state && _state->ok; }
+    const std::string &failureReason() const noexcept override;
+    bool writeAll(std::span<const std::byte> data) noexcept override;
+    bool readExact(std::span<std::byte> data) noexcept override;
+    void shutdown() noexcept override;
+
+  private:
+    std::unique_ptr<TlsState> _state;
+};
+
 // POSIX file descriptors fit in int and SSL_set_fd takes int, so this narrowing
 // is correct on the implemented macOS/Linux target. A Windows SOCKET is a
 // UINT_PTR that can exceed INT_MAX; the Windows TLS backend is a follow-on and
@@ -42,6 +69,101 @@ namespace
 int nativeFd(std::uintptr_t handle) noexcept
 {
     return static_cast<int>(static_cast<std::intptr_t>(handle));
+}
+
+// No path comes from the OpenSSL build: its OPENSSLDIR names the folder it was configured in.
+std::size_t countStoreCerts(X509_STORE *store)
+{
+    STACK_OF(X509_OBJECT) *objects = X509_STORE_get0_objects(store);
+    return static_cast<std::size_t>(sk_X509_OBJECT_num(objects));
+}
+
+#if defined(_WIN32)
+std::size_t loadPlatformRoots(X509_STORE *store)
+{
+    HCERTSTORE system = CertOpenSystemStoreA(0, "ROOT");
+    if (system == nullptr)
+        return 0;
+    std::size_t added = 0;
+    for (PCCERT_CONTEXT context = CertEnumCertificatesInStore(system, nullptr); context != nullptr;
+         context = CertEnumCertificatesInStore(system, context))
+    {
+        const unsigned char *der = context->pbCertEncoded;
+        X509 *certificate        = d2i_X509(nullptr, &der, static_cast<long>(context->cbCertEncoded));
+        if (certificate == nullptr)
+            continue;
+        if (X509_STORE_add_cert(store, certificate) == 1)
+            ++added;
+        X509_free(certificate);
+    }
+    CertCloseStore(system, 0);
+    return added;
+}
+#else
+std::size_t loadPlatformRoots(X509_STORE *store)
+{
+    static const char *const bundles[] = {
+        "/etc/ssl/cert.pem", // macOS keeps this current from the keychain's anchors
+        "/etc/ssl/certs/ca-certificates.crt", // Debian, Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",   // Fedora, RHEL
+    };
+    for (const char *bundle : bundles)
+    {
+        struct stat info{};
+        if (::stat(bundle, &info) != 0)
+            continue;
+        if (X509_STORE_load_file(store, bundle) == 1 && countStoreCerts(store) > 0)
+            return countStoreCerts(store);
+    }
+    return 0;
+}
+#endif
+
+// Fills the store from the override file when given, else from the platform's roots.
+bool loadTrust(X509_STORE *store, std::string_view trustedRootsFile, std::string &reason)
+{
+    if (!trustedRootsFile.empty())
+    {
+        const std::string path(trustedRootsFile);
+        if (X509_STORE_load_file(store, path.c_str()) != 1 || countStoreCerts(store) == 0)
+        {
+            reason = "no certificate could be read from the trusted roots file " + path;
+            return false;
+        }
+        return true;
+    }
+    if (loadPlatformRoots(store) == 0)
+    {
+        reason = "no system root certificates could be loaded";
+        return false;
+    }
+    return true;
+}
+
+bool addPinnedCert(X509_STORE *store, std::string_view pem)
+{
+    BIO *bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
+    X509 *trusted = (bio != nullptr) ? PEM_read_bio_X509(bio, nullptr, nullptr, nullptr) : nullptr;
+    if (trusted != nullptr)
+    {
+        X509_STORE_add_cert(store, trusted);
+        X509_free(trusted);
+    }
+    if (bio != nullptr)
+        BIO_free(bio);
+    return trusted != nullptr;
+}
+
+std::string handshakeFailure(SSL *ssl)
+{
+    const long verify = SSL_get_verify_result(ssl);
+    if (verify != X509_V_OK)
+        return std::string("certificate verification failed: ") +
+               X509_verify_cert_error_string(verify);
+    const unsigned long code = ERR_peek_last_error();
+    if (code != 0)
+        return std::string("TLS handshake failed: ") + ERR_error_string(code, nullptr);
+    return "TLS handshake failed";
 }
 
 void describeCertificate(X509 *certificate, EVP_PKEY *pkey, const std::string &host)
@@ -69,7 +191,7 @@ void describeCertificate(X509 *certificate, EVP_PKEY *pkey, const std::string &h
     }
 }
 
-void writePem(X509 *certificate, EVP_PKEY *pkey, SelfSignedCert &result)
+void writePem(X509 *certificate, EVP_PKEY *pkey, std::string &certPem, std::string &keyPem)
 {
     BIO *certBio = BIO_new(BIO_s_mem());
     BIO *keyBio  = BIO_new(BIO_s_mem());
@@ -82,8 +204,8 @@ void writePem(X509 *certificate, EVP_PKEY *pkey, SelfSignedCert &result)
         const long keyLen  = BIO_get_mem_data(keyBio, &keyData);
         if (certData != nullptr && certLen > 0 && keyData != nullptr && keyLen > 0)
         {
-            result.certPem.assign(certData, static_cast<std::size_t>(certLen));
-            result.keyPem.assign(keyData, static_cast<std::size_t>(keyLen));
+            certPem.assign(certData, static_cast<std::size_t>(certLen));
+            keyPem.assign(keyData, static_cast<std::size_t>(keyLen));
         }
         // The key BIO buffer held the unencrypted private key; wipe it.
         if (keyData != nullptr && keyLen > 0)
@@ -100,17 +222,15 @@ void writePem(X509 *certificate, EVP_PKEY *pkey, SelfSignedCert &result)
 
 SelfSignedCert generateSelfSignedCert(std::string_view hostname)
 {
-    SelfSignedCert result;
-
     EVP_PKEY *pkey = EVP_PKEY_Q_keygen(nullptr, nullptr, "RSA", static_cast<std::size_t>(2048));
     if (pkey == nullptr)
-        return result;
+        return SelfSignedCert{};
 
     X509 *certificate = X509_new();
     if (certificate == nullptr)
     {
         EVP_PKEY_free(pkey);
-        return result;
+        return SelfSignedCert{};
     }
 
     describeCertificate(certificate, pkey, std::string(hostname));
@@ -119,86 +239,93 @@ SelfSignedCert generateSelfSignedCert(std::string_view hostname)
     {
         X509_free(certificate);
         EVP_PKEY_free(pkey);
-        return result; // an unsigned cert is unusable -- honour the empty-on-failure contract
+        return SelfSignedCert{}; // an unsigned cert is unusable -- honour the empty-on-failure contract
     }
 
-    writePem(certificate, pkey, result);
+    std::string certPem;
+    std::string keyPem;
+    writePem(certificate, pkey, certPem, keyPem);
     X509_free(certificate);
     EVP_PKEY_free(pkey);
-    return result;
+    return SelfSignedCert{std::move(certPem), std::move(keyPem)};
 }
 
-TlsStream::TlsStream(std::unique_ptr<State> state) noexcept : _state(std::move(state)) {}
-TlsStream::~TlsStream()                                = default;
-TlsStream::TlsStream(TlsStream &&) noexcept            = default;
-TlsStream &TlsStream::operator=(TlsStream &&) noexcept = default;
-
-TlsStream TlsStream::connectClient(std::uintptr_t connectedSocket,
-                                   std::string_view expectedHostname,
-                                   std::string_view trustedCertPem)
+std::unique_ptr<ITlsStream> connectTlsClient(std::uintptr_t connectedSocket,
+                                             std::string_view expectedHostname,
+                                             std::string_view trustedCertPem,
+                                             std::string_view trustedRootsFile)
 {
-    auto state = std::make_unique<State>();
+    auto state = std::make_unique<TlsState>();
 
     // An empty expected hostname cannot be verified; refuse rather than fall
     // through to accepting any chain-valid certificate.
     const std::string host(expectedHostname);
     if (host.empty())
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
     state->ctx = SSL_CTX_new(TLS_client_method());
     if (state->ctx == nullptr)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
     if (SSL_CTX_set_min_proto_version(state->ctx, TLS1_3_VERSION) != 1)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
+    X509_STORE *store = SSL_CTX_get_cert_store(state->ctx);
     if (!trustedCertPem.empty())
     {
-        BIO *bio = BIO_new_mem_buf(trustedCertPem.data(), static_cast<int>(trustedCertPem.size()));
-        X509 *trusted =
-            (bio != nullptr) ? PEM_read_bio_X509(bio, nullptr, nullptr, nullptr) : nullptr;
-        if (trusted != nullptr)
-        {
-            X509_STORE_add_cert(SSL_CTX_get_cert_store(state->ctx), trusted);
-            X509_free(trusted);
-        }
-        if (bio != nullptr)
-            BIO_free(bio);
         // A pin was requested but did not parse -- do not silently trust nothing.
-        if (trusted == nullptr)
-            return TlsStream(std::move(state));
-    } else if (SSL_CTX_set_default_verify_paths(state->ctx) != 1)
+        if (!addPinnedCert(store, trustedCertPem))
+        {
+            state->reason = "the pinned certificate could not be parsed";
+            return std::make_unique<TlsStream>(std::move(state));
+        }
+    } else if (!loadTrust(store, trustedRootsFile, state->reason))
     {
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
     }
     SSL_CTX_set_verify(state->ctx, SSL_VERIFY_PEER, nullptr);
 
     state->ssl = SSL_new(state->ctx);
     if (state->ssl == nullptr)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
     SSL_set_fd(state->ssl, nativeFd(connectedSocket));
-    SSL_set_tlsext_host_name(state->ssl, host.c_str()); // SNI
+    // Without the SNI name the server may present another vhost's certificate.
+    if (SSL_set_tlsext_host_name(state->ssl, host.c_str()) != 1)
+        return std::make_unique<TlsStream>(std::move(state));
     SSL_set_hostflags(state->ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
     // Arming hostname verification MUST succeed; otherwise the peer certificate
     // would be chain-checked but never matched against the expected hostname.
     if (SSL_set1_host(state->ssl, host.c_str()) != 1)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
+    ERR_clear_error();
     state->ok = (SSL_connect(state->ssl) == 1);
-    return TlsStream(std::move(state));
+    if (!state->ok)
+        state->reason = handshakeFailure(state->ssl);
+    return std::make_unique<TlsStream>(std::move(state));
 }
 
-TlsStream TlsStream::acceptServer(std::uintptr_t connectedSocket, std::string_view certPem,
-                                  std::string_view keyPem)
+std::size_t tlsSystemRootCount()
 {
-    auto state = std::make_unique<State>();
+    X509_STORE *store = X509_STORE_new();
+    if (store == nullptr)
+        return 0;
+    const std::size_t count = loadPlatformRoots(store);
+    X509_STORE_free(store);
+    return count;
+}
+
+std::unique_ptr<ITlsStream> acceptTlsServer(std::uintptr_t connectedSocket,
+                                            std::string_view certPem, std::string_view keyPem)
+{
+    auto state = std::make_unique<TlsState>();
     state->ctx = SSL_CTX_new(TLS_server_method());
     if (state->ctx == nullptr)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
     if (SSL_CTX_set_min_proto_version(state->ctx, TLS1_3_VERSION) != 1)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
     BIO *certBio = BIO_new_mem_buf(certPem.data(), static_cast<int>(certPem.size()));
     X509 *certificate =
@@ -210,7 +337,7 @@ TlsStream TlsStream::acceptServer(std::uintptr_t connectedSocket, std::string_vi
     if (certBio != nullptr)
         BIO_free(certBio);
     if (!certOk)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
     BIO *keyBio = BIO_new_mem_buf(keyPem.data(), static_cast<int>(keyPem.size()));
     EVP_PKEY *key =
@@ -221,11 +348,11 @@ TlsStream TlsStream::acceptServer(std::uintptr_t connectedSocket, std::string_vi
     if (keyBio != nullptr)
         BIO_free(keyBio);
     if (!keyOk)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
     // Reject a key that does not match the certificate before handshaking.
     if (SSL_CTX_check_private_key(state->ctx) != 1)
-        return TlsStream(std::move(state));
+        return std::make_unique<TlsStream>(std::move(state));
 
     state->ssl = SSL_new(state->ctx);
     if (state->ssl != nullptr)
@@ -233,10 +360,14 @@ TlsStream TlsStream::acceptServer(std::uintptr_t connectedSocket, std::string_vi
         SSL_set_fd(state->ssl, nativeFd(connectedSocket));
         state->ok = (SSL_accept(state->ssl) == 1);
     }
-    return TlsStream(std::move(state));
+    return std::make_unique<TlsStream>(std::move(state));
 }
 
-bool TlsStream::ok() const noexcept { return _state && _state->ok; }
+const std::string &TlsStream::failureReason() const noexcept
+{
+    static const std::string none;
+    return _state ? _state->reason : none;
+}
 
 bool TlsStream::writeAll(std::span<const std::byte> data) noexcept
 {
